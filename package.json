@@ -1,0 +1,35 @@
+{
+  "name": "nexus-desktop-monorepo",
+  "private": true,
+  "version": "0.1.0",
+  "description": "NEXUS Desktop — AI Development Environment",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @nexus/desktop dev",
+    "start": "pnpm --filter @nexus/desktop start",
+    "build": "pnpm run typecheck && pnpm --filter @nexus/desktop build",
+    "package": "pnpm run build && pnpm --filter @nexus/desktop package",
+    "typecheck": "tsc -b tsconfig.json",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "pnpm --filter @nexus/core test",
+    "test:e2e": "playwright test",
+    "verify": "pnpm run typecheck && pnpm run lint && pnpm run test && pnpm --filter @nexus/desktop build"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@playwright/test": "^1.65.0",
+    "@types/node": "^24.10.1",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^16.5.0",
+    "prettier": "^3.10.1",
+    "typescript": "5.9.3",
+    "typescript-eslint": "^8.72.2",
+    "zod": "^4.6.7"
+  }
+}

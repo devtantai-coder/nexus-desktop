@@ -1,0 +1,46 @@
+appId: com.nexus.desktop
+productName: NEXUS Desktop
+copyright: Copyright © 2026 NEXUS
+directories:
+  buildResources: build
+  output: ../../release
+files:
+  - dist/**/*
+  - package.json
+npmRebuild: false
+asar: true
+extraMetadata:
+  main: dist/main/index.js
+linux:
+  executableName: nexus-desktop
+  artifactName: NEXUS-Desktop-${version}-${arch}.${ext}
+  target:
+    - AppImage
+    - deb
+  category: Development
+  icon: build/icon.png
+  maintainer: NEXUS <dev@nexus.local>
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+  icon: build/icon.png
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+mac:
+  target:
+    - dmg
+  category: public.app-category.developer-tools
+  icon: build/icon.png
+  hardenedRuntime: true
+  gatekeeperAssess: false
+
+publish:
+  provider: generic
+  url: https://updates.nexus.invalid/

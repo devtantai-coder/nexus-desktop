@@ -1,0 +1,3 @@
+# Event loop trong Node.js
+
+Node.js chạy trên một luồng duy nhất và dùng event loop để xử lý bất đồng bộ. Event loop là vòng lặp kiểm tra các hàng đợi (timers, pending callbacks, poll, check, close) và thực thi callback khi sự kiện sẵn sàng. Khi gọi một tác vụ I/O, Node đẩy nó xuống hệ điều hành hoặc thread pool (libuv), rồi tiếp tục chạy code khác. Khi tác vụ xong, callback được đưa vào hàng đợi và event loop gọi nó ở vòng kế tiếp. Một process phục vụ được hàng nghìn kết nối đồng thời. Tác vụ CPU nặng sẽ chặn event loop và làm mọi request bị trễ, nên cần tách sang worker thread hoặc process riêng.

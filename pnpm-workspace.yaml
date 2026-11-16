@@ -1,0 +1,14 @@
+packages:
+  - apps/*
+  - packages/*
+
+onlyBuiltDependencies:
+  - electron
+  - esbuild
+  - electron-winstaller
+  - '@tailwindcss/oxide'
+minimumReleaseAgeExclude:
+  - electron@45.3.2
+  - framer-motion@14.14.0
+  - motion-dom@14.14.0
+dangerouslyAllowAllBuilds: true
