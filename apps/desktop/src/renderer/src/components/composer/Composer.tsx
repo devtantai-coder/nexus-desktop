@@ -13,12 +13,14 @@ import {
   X,
 } from 'lucide-react'
 import type {
+  AgentEngine,
   AgentMode,
   Attachment,
   Message,
   ModelReasoningEffort,
   PermissionMode,
 } from '@nexus/shared'
+import { modelVariantLabel } from '@nexus/shared'
 import { api, queryClient, qk, useAppStore, useT } from '../../kernel'
 import { newSession } from '../../lib/actions'
 import { listCommands, parseSlash, runSlash } from '../../lib/slash'
@@ -38,6 +40,13 @@ export interface ComposerProps {
   onSent?: (result: { taskId: string; messageId?: string; queued?: boolean }) => void
   compact?: boolean
   hero?: boolean
+}
+
+const ENGINE_LABEL: Record<AgentEngine, string> = {
+  auto: 'Tự động',
+  native: 'Nexus',
+  'claude-agent-sdk': 'Claude SDK',
+  langgraph: 'LangGraph',
 }
 
 const PERMISSION_LABEL: Record<string, string> = {
@@ -94,7 +103,10 @@ export function Composer({
   )
   const [modeOverride, setModeOverride] = useState<AgentMode | null>(null)
   const [permissionOverride, setPermissionOverride] = useState<PermissionMode | null>(null)
-  const [menu, setMenu] = useState<'mode' | 'permission' | 'effort' | 'project' | null>(null)
+  const [engineOverride, setEngineOverride] = useState<AgentEngine | null>(null)
+  const [menu, setMenu] = useState<'mode' | 'permission' | 'engine' | 'effort' | 'project' | null>(
+    null,
+  )
   const [sending, setSending] = useState(false)
   const [mentionItems, setMentionItems] = useState<string[]>([])
   const [mentionIndex, setMentionIndex] = useState(0)
@@ -111,8 +123,17 @@ export function Composer({
   // Reactive so /agent và /model đổi xong là thấy ngay trong composer.
   const mode = session?.mode ?? modeOverride ?? fallbackMode
   const permission = session?.permissionMode ?? permissionOverride ?? fallbackPermission
+  const engine =
+    (session?.engine as AgentEngine | undefined) ??
+    engineOverride ??
+    (settings['agent.engine'] as AgentEngine | undefined) ??
+    'auto'
   const projectContextId = session?.projectId ?? activeProjectId ?? null
-  const { data: projects = [] } = useQuery({ queryKey: qk.projects, queryFn: () => api.projects.list(), staleTime: 60_000 })
+  const { data: projects = [] } = useQuery({
+    queryKey: qk.projects,
+    queryFn: () => api.projects.list(),
+    staleTime: 60_000,
+  })
   const currentProject = projects.find((project) => project.id === projectContextId) ?? null
   const { data: gitStatus } = useQuery({
     queryKey: ['composer-git', projectContextId ?? 'none'],
@@ -169,6 +190,17 @@ export function Composer({
       ) ??
       defaultModel)
     : defaultModel
+  const setEngine = async (next: AgentEngine): Promise<void> => {
+    setMenu(null)
+    setEngineOverride(next)
+    if (sessionId) {
+      await api.sessions.update(sessionId, { engine: next })
+      await queryClient.invalidateQueries({ queryKey: qk.session(sessionId) })
+    } else {
+      useAppStore.getState().setSetting('agent.engine', next)
+    }
+  }
+
   const setPermission = async (next: PermissionMode): Promise<void> => {
     setMenu(null)
     setPermissionOverride(next)
@@ -267,6 +299,7 @@ export function Composer({
           (await newSession({
             projectId: activeProjectId,
             mode: nextMode,
+            engine,
             title: prompt.slice(0, 60) || 'Hội thoại mới',
           }))
         if (!targetSession) return
@@ -276,6 +309,7 @@ export function Composer({
           prompt,
           mode: nextMode,
           permissionMode: permission,
+          engine,
           ...(projectContextId ? { projectId: projectContextId } : {}),
         })
         onSent?.(result)
@@ -286,7 +320,17 @@ export function Composer({
         useAppStore.getState().setSendingSession(null)
       }
     },
-    [activeProjectId, mode, onSent, onSubmitPrompt, permission, projectContextId, sessionId, toast],
+    [
+      activeProjectId,
+      engine,
+      mode,
+      onSent,
+      onSubmitPrompt,
+      permission,
+      projectContextId,
+      sessionId,
+      toast,
+    ],
   )
 
   const runCommand = useCallback(
@@ -528,7 +572,7 @@ export function Composer({
     <div
       className={cn(
         // Card bo 22px, --elevation-composer, nền gần-trắng — đúng composer Codex.
-        'composer-card relative flex flex-col overflow-hidden transition-shadow duration-150',
+        'composer-card relative flex flex-col overflow-visible transition-shadow duration-150',
         dragging && 'ring-4 ring-[var(--info-soft)]',
         hero && 'min-h-[98px]',
       )}
@@ -775,7 +819,10 @@ export function Composer({
                 className="fixed inset-0 z-30 cursor-default"
                 onClick={() => setMenu(null)}
               />
-              <div role="menu" className="absolute bottom-full left-0 z-40 mb-1 max-h-[260px] w-[240px] overflow-y-auto rounded-[12.5px] border border-[var(--border)] bg-[var(--bg-elevated)] p-1 shadow-[var(--shadow-overlay)]">
+              <div
+                role="menu"
+                className="absolute bottom-full left-0 z-40 mb-1 max-h-[260px] w-[240px] overflow-y-auto rounded-[12.5px] border border-[var(--border)] bg-[var(--bg-elevated)] p-1 shadow-[var(--shadow-overlay)]"
+              >
                 {(projects ?? []).map((project) => (
                   <button
                     key={project.id}
@@ -880,6 +927,43 @@ export function Composer({
             </>
           ) : null}
         </div>
+        <div className="relative">
+          <button
+            type="button"
+            aria-label="Change agent engine"
+            onClick={() => setMenu((current) => (current === 'engine' ? null : 'engine'))}
+            className="flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-transparent px-2 text-[13px] leading-[18px] text-[var(--text-muted)] transition-colors hover:border-[var(--border)] hover:bg-[var(--bg-hover)] hover:text-[var(--text)]"
+          >
+            {ENGINE_LABEL[engine]}
+            <ChevronDown size={13} />
+          </button>
+          {menu === 'engine' ? (
+            <>
+              <button
+                type="button"
+                aria-label="Close menu"
+                className="fixed inset-0 z-30 cursor-default"
+                onClick={() => setMenu(null)}
+              />
+              <div
+                role="menu"
+                className={cn('absolute bottom-full left-0 z-40 mb-1 w-[190px]', popoverShell)}
+              >
+                {(Object.keys(ENGINE_LABEL) as AgentEngine[]).map((item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    onClick={() => void setEngine(item)}
+                    className={menuRow}
+                  >
+                    <span className="flex-1">{ENGINE_LABEL[item]}</span>
+                    {engine === item ? <Check size={13} /> : null}
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : null}
+        </div>
         <div className="relative hidden sm:block">
           <button
             type="button"
@@ -898,18 +982,23 @@ export function Composer({
                 className="fixed inset-0 z-30 cursor-default"
                 onClick={() => setMenu(null)}
               />
-              <div role="menu" className={cn('absolute bottom-full left-0 z-40 mb-1 w-[180px]', popoverShell)}>
-                {(['agent', 'plan', 'ask', 'code', 'review', 'debug'] as AgentMode[]).map((item) => (
-                  <button
-                    key={item}
-                    type="button"
-                    onClick={() => void setMode(item)}
-                    className={menuRow}
-                  >
-                    <span className="flex-1 capitalize">{item}</span>
-                    {mode === item ? <Check size={13} /> : null}
-                  </button>
-                ))}
+              <div
+                role="menu"
+                className={cn('absolute bottom-full left-0 z-40 mb-1 w-[180px]', popoverShell)}
+              >
+                {(['agent', 'plan', 'ask', 'code', 'review', 'debug'] as AgentMode[]).map(
+                  (item) => (
+                    <button
+                      key={item}
+                      type="button"
+                      onClick={() => void setMode(item)}
+                      className={menuRow}
+                    >
+                      <span className="flex-1 capitalize">{item}</span>
+                      {mode === item ? <Check size={13} /> : null}
+                    </button>
+                  ),
+                )}
               </div>
             </>
           ) : null}
@@ -943,7 +1032,10 @@ export function Composer({
                 className="fixed inset-0 z-30 cursor-default"
                 onClick={() => setMenu(null)}
               />
-              <div role="menu" className={cn('absolute bottom-full left-0 z-40 mb-1 w-[240px]', popoverShell)}>
+              <div
+                role="menu"
+                className={cn('absolute bottom-full left-0 z-40 mb-1 w-[240px]', popoverShell)}
+              >
                 {(Object.keys(PERMISSION_LABEL) as PermissionMode[]).map((item) => (
                   <button
                     key={item}
@@ -964,10 +1056,15 @@ export function Composer({
 
         <Select
           value={currentModel?.id ?? ''}
-          options={models.map((entry) => ({
-            value: entry.id,
-            label: entry.displayName || entry.modelId,
-          }))}
+          options={models.map((entry) => {
+            const label = modelVariantLabel(entry)
+            return {
+              value: entry.id,
+              label: label
+                ? `${entry.displayName || entry.modelId} · ${label}`
+                : entry.displayName || entry.modelId,
+            }
+          })}
           onValueChange={(id: string) => {
             const target = models.find((entry) => entry.id === id)
             if (target) void chooseModel(target.providerId, target.modelId, target.variant ?? '')
@@ -995,7 +1092,10 @@ export function Composer({
                   className="fixed inset-0 z-30 cursor-default"
                   onClick={() => setMenu(null)}
                 />
-                <div role="menu" className={cn('absolute bottom-full right-0 z-40 mb-1 w-[180px]', popoverShell)}>
+                <div
+                  role="menu"
+                  className={cn('absolute bottom-full right-0 z-40 mb-1 w-[180px]', popoverShell)}
+                >
                   {(['off', 'minimal', 'low', 'medium', 'high'] as ModelReasoningEffort[]).map(
                     (item) => (
                       <button
@@ -1033,9 +1133,7 @@ export function Composer({
           disabled={!canSend || sending}
           className={cn(
             'flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--composer-primary)] text-[var(--text-on-composer-primary)] transition-[filter,transform,opacity] duration-150',
-            canSend && !sending
-              ? 'hover:brightness-[0.93] active:scale-95'
-              : 'opacity-40',
+            canSend && !sending ? 'hover:brightness-[0.93] active:scale-95' : 'opacity-40',
           )}
         >
           {sending ? <Spinner size={13} /> : <IconSend size={16} />}

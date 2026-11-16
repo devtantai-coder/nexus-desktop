@@ -159,6 +159,10 @@ cầu dự án đang mở; nếu chưa có, ứng dụng báo
 Ngoài ra mọi file `.md` trong `.nexus/commands` hoặc `.claude/commands` (theo project và theo
 `$HOME`) trở thành lệnh riêng; template hỗ trợ tham số `$ARGUMENTS`.
 
+Tham số dạng danh sách (`/discard`, `/open`) được tách bằng `string-argv` theo quy ước shell:
+đặt trong `"..."` hoặc `'...'` để giữ khoảng trắng, ví dụ
+`/discard "src/my file.ts" src/other.ts`.
+
 Menu lệnh nằm phía trên hộp soạn (nên hộp soạn không dùng `overflow: hidden`). Cho phép khoảng
 trắng thừa trước dấu `/`; xoá hết nội dung sẽ đặt lại trạng thái đóng menu.
 

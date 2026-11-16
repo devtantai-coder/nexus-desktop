@@ -46,6 +46,7 @@ export const ipcSchemas: Record<IpcChannel, z.ZodTypeAny> = {
     kind: z.enum([
       'openai',
       'openai-compatible',
+      'vercel',
       'anthropic',
       'google',
       'deepseek',
@@ -161,6 +162,7 @@ export const ipcSchemas: Record<IpcChannel, z.ZodTypeAny> = {
       permissionMode: z
         .enum(['read-only', 'workspace-write', 'terminal-approval', 'elevated', 'unrestricted'])
         .optional(),
+      engine: z.enum(['auto', 'native', 'claude-agent-sdk', 'langgraph']).optional(),
     })
     .optional(),
   'session.get': z.object({ id }),
@@ -175,6 +177,7 @@ export const ipcSchemas: Record<IpcChannel, z.ZodTypeAny> = {
       permissionMode: z
         .enum(['read-only', 'workspace-write', 'terminal-approval', 'elevated', 'unrestricted'])
         .optional(),
+      engine: z.enum(['auto', 'native', 'claude-agent-sdk', 'langgraph']).optional(),
       archived: z.boolean().optional(),
       pinned: z.boolean().optional(),
     }),
@@ -195,6 +198,7 @@ export const ipcSchemas: Record<IpcChannel, z.ZodTypeAny> = {
     providerId: id.optional(),
     modelId: z.string().max(300).optional(),
     projectId: id.optional(),
+    engine: z.enum(['auto', 'native', 'claude-agent-sdk', 'langgraph']).optional(),
     attachments: z.array(attachment).max(20).optional(),
   }),
   'agent.cancel': z.object({ taskId: id }),

@@ -2,13 +2,14 @@ import type { AgentMode, CustomCommand, PermissionMode } from '@nexus/shared'
 import type { ModelReasoningEffort } from '@nexus/shared'
 import { api, queryClient, qk, useAppStore } from '../kernel'
 import { newSession } from './actions'
-import { AGENT_MODES, BUILTIN_COMMANDS, expandTemplate } from './slash-parse'
+import { AGENT_MODES, BUILTIN_COMMANDS, expandTemplate, parseArgs } from './slash-parse'
 
 export {
   AGENT_MODES,
   BUILTIN_COMMANDS,
   expandTemplate,
   listCommands,
+  parseArgs,
   parseSlash,
   type SlashCommand,
 } from './slash-parse'
@@ -340,7 +341,7 @@ export async function runSlash(
     }
 
     case 'open': {
-      const target = input.trim()
+      const [target] = parseArgs(input)
       if (!target) {
         toast({ level: 'info', title: 'Cần đường dẫn', body: 'Ví dụ: /open src/main.ts' })
         return true
@@ -476,10 +477,7 @@ export async function runSlash(
         toast({ level: 'info', title: 'Cần mở một dự án trước' })
         return true
       }
-      const paths = input
-        .split(/\s+/)
-        .map((value) => value.trim())
-        .filter(Boolean)
+      const paths = parseArgs(input)
       if (paths.length === 0) {
         toast({
           level: 'info',

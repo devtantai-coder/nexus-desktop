@@ -61,7 +61,10 @@ describe('Core dispatch', () => {
     const projectDir = join(tempDir, 'project')
     ensureDirectory(projectDir)
     writeFileAtomic(join(projectDir, 'index.ts'), 'const x = 1\n')
-    const project = (await core.request('project.open', { path: projectDir })) as { id: string; path: string }
+    const project = (await core.request('project.open', { path: projectDir })) as {
+      id: string
+      path: string
+    }
     assert.equal(project.path, projectDir)
     const tree = (await core.request('workspace.tree', { projectId: project.id, depth: 1 })) as {
       children: unknown[]
@@ -83,10 +86,15 @@ describe('Core dispatch', () => {
       title: 'Core session',
     })) as { id: string; title: string }
     assert.equal(session.title, 'Core session')
-    const messages = (await core.request('session.messages', { sessionId: session.id })) as unknown[]
+    const messages = (await core.request('session.messages', {
+      sessionId: session.id,
+    })) as unknown[]
     assert.ok(Array.isArray(messages))
 
-    const steer = (await core.request('agent.steer', { taskId: 'missing-task', prompt: 'steer' })) as {
+    const steer = (await core.request('agent.steer', {
+      taskId: 'missing-task',
+      prompt: 'steer',
+    })) as {
       queued: boolean
     }
     assert.equal(steer.queued, false)

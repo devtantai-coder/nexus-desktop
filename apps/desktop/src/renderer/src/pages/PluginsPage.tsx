@@ -146,7 +146,11 @@ export function PluginsPage(): React.JSX.Element {
       await queryClient.invalidateQueries({ queryKey: qk.mcpServers })
       toast({ level: 'success', title: `Đã cài ${entry.name}` })
     } catch (error) {
-      toast({ level: 'error', title: `Không cài được ${entry.name}`, body: (error as Error).message })
+      toast({
+        level: 'error',
+        title: `Không cài được ${entry.name}`,
+        body: (error as Error).message,
+      })
     }
   }
 
@@ -193,7 +197,9 @@ export function PluginsPage(): React.JSX.Element {
                   >
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5">
-                        <span className="truncate text-[14px] text-[var(--text)]">{entry.name}</span>
+                        <span className="truncate text-[14px] text-[var(--text)]">
+                          {entry.name}
+                        </span>
                         {isInstalled ? (
                           <span className="shrink-0 text-[11.5px] text-[var(--text-faint)]">
                             {status?.status.running
@@ -226,7 +232,9 @@ export function PluginsPage(): React.JSX.Element {
                         Add
                       </button>
                     )}
-                    {isInstalled ? <Check size={15} className="shrink-0 text-[var(--success)]" /> : null}
+                    {isInstalled ? (
+                      <Check size={15} className="shrink-0 text-[var(--success)]" />
+                    ) : null}
                   </div>
                 )
               })}

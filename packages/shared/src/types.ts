@@ -3,6 +3,7 @@ export type Id = string
 export type ProviderKind =
   | 'openai'
   | 'openai-compatible'
+  | 'vercel'
   | 'anthropic'
   | 'google'
   | 'deepseek'
@@ -30,6 +31,8 @@ export type ProviderKind =
 export type ModelCategory = 'general' | 'coding' | 'reasoning' | 'vision' | 'tools' | 'long-context'
 
 export type AgentMode = 'ask' | 'plan' | 'code' | 'agent' | 'review' | 'debug'
+
+export type AgentEngine = 'auto' | 'native' | 'claude-agent-sdk' | 'langgraph'
 
 export type PermissionMode =
   'read-only' | 'workspace-write' | 'terminal-approval' | 'elevated' | 'unrestricted'
@@ -140,6 +143,8 @@ export interface Session {
   modelVariant?: string
   /** Biến thể suy luận đã xác minh cho model này: `off` | `medium` | `budget:8192` … */
   permissionMode: PermissionMode
+  /** Bộ máy agent cho phiên này; mặc định lấy từ Settings. */
+  engine?: AgentEngine
   archived: boolean
   pinned: boolean
   createdAt: number

@@ -16,11 +16,11 @@
     "isolatedModules": true,
     "verbatimModuleSyntax": false,
     "jsx": "react-jsx",
-    "baseUrl": ".",
     "paths": {
-      "@nexus/shared": ["packages/shared/src/index.ts"],
-      "@nexus/shared/*": ["packages/shared/src/*"],
-      "@nexus/core": ["packages/core/src/index.ts"]
+      "@nexus/shared": ["./packages/shared/src/index.ts"],
+      "@nexus/shared/*": ["./packages/shared/src/*"],
+      "@nexus/core": ["./packages/core/src/index.ts"],
+      "@nexus/cordis": ["./packages/cordis/src/index.ts"]
     }
   }
 }

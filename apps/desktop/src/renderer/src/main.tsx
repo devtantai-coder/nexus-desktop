@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClient, useAppStore } from './kernel'
 import { App } from './App'
-import { kernel, mcpPlugin, realtimePlugin } from './kernel'
+import { loadKernelPlugins } from './kernel'
 import './styles/globals.css'
 
 function UnsupportedEnvironment(): React.JSX.Element {
@@ -47,8 +47,7 @@ async function boot(): Promise<void> {
     useAppStore.getState().openSession(popout)
     useAppStore.setState({ sidebarCollapsed: true })
   }
-  kernel.plugin(realtimePlugin)
-  kernel.plugin(mcpPlugin)
+  await loadKernelPlugins()
   createRoot(container).render(
     <React.StrictMode>
       <QueryClientProvider client={queryClient}>

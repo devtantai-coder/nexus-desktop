@@ -1,12 +1,13 @@
-import { Context } from 'cordis'
 import { api } from '../lib/api'
 import { queryClient } from '../lib/query'
 import { useAppStore } from '../store/app-store'
 import * as mcp from '../lib/mcp'
+import { createContainer } from '@nexus/cordis'
+import { realtimePlugin } from './plugin-realtime'
+import { mcpPlugin } from './plugin-mcp'
 
 /**
- * Cordis kernel: every shared singleton the renderer needs is a service registered here, so new
- * features attach as plugins instead of importing module-level globals directly.
+ * Kernel services: plain object exposing shared singletons.
  */
 export interface KernelServices {
   api: typeof api
@@ -15,20 +16,24 @@ export interface KernelServices {
   mcp: typeof mcp
 }
 
-export const kernel = new Context() as Context & KernelServices
+export const kernel: KernelServices = {
+  api,
+  query: queryClient,
+  store: useAppStore,
+  mcp,
+}
 
-kernel.provide('api', api)
-kernel.provide('query', queryClient)
-kernel.provide('store', useAppStore)
-kernel.provide('mcp', mcp)
-
-/**
- * Các service của kernel cũng được re-export để feature chỉ cần một điểm vào duy nhất.
- * Nguồn định nghĩa vẫn là `lib/api`, `lib/query`, `store/app-store` (kernel provide nguyên bản).
- */
 export { api } from '../lib/api'
 export { queryClient, qk } from '../lib/query'
 export { useAppStore, useT } from '../store/app-store'
+
+export const kernelContainer = createContainer()
+kernelContainer.plugin(realtimePlugin as never)
+kernelContainer.plugin(mcpPlugin as never)
+
+export async function loadKernelPlugins(): Promise<void> {
+  await kernelContainer.loadAll()
+}
 
 export { realtimePlugin } from './plugin-realtime'
 export { mcpPlugin } from './plugin-mcp'

@@ -143,7 +143,11 @@ export function installRealtime(): () => void {
       case 'agent.approval.required':
         store.getState().pushApproval(event.payload)
         if (store.getState().settings['app.notifyOnApproval'] !== false && !document.hasFocus()) {
-          void api.app.notify('Cần bạn duyệt', event.payload.summary ?? 'Yêu cầu quyền mới', 'warning')
+          void api.app.notify(
+            'Cần bạn duyệt',
+            event.payload.summary ?? 'Yêu cầu quyền mới',
+            'warning',
+          )
         }
         break
       case 'agent.approval.resolved':

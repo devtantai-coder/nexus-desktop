@@ -279,7 +279,9 @@ export function ChatPage(): React.JSX.Element {
                 {session.title}
               </button>
             )}
-            {session.pinned ? <Pin size={11} className="shrink-0 text-[var(--brand-accent)]" /> : null}
+            {session.pinned ? (
+              <Pin size={11} className="shrink-0 text-[var(--brand-accent)]" />
+            ) : null}
           </div>
 
           <div className="flex-1" />
@@ -383,56 +385,56 @@ export function ChatPage(): React.JSX.Element {
       </header>
 
       <div className="flex min-h-0 flex-1">
-      <Conversation
-        sessionId={session.id}
-        messages={messages}
-        streamingEnabled={Boolean(runningTask)}
-        task={latestTask ?? null}
-        taskDetail={taskDetail ?? null}
-        onEditPrompt={(prompt) => {
-          setDraft(prompt)
-          setDraftKey((key) => key + 1)
-          useAppStore.getState().focusComposer()
-        }}
-        onRetry={(prompt) => void sendPrompt(prompt)}
-        onRewind={(message) => setRewindTarget(message)}
-      />
+        <Conversation
+          sessionId={session.id}
+          messages={messages}
+          streamingEnabled={Boolean(runningTask)}
+          task={latestTask ?? null}
+          taskDetail={taskDetail ?? null}
+          onEditPrompt={(prompt) => {
+            setDraft(prompt)
+            setDraftKey((key) => key + 1)
+            useAppStore.getState().focusComposer()
+          }}
+          onRetry={(prompt) => void sendPrompt(prompt)}
+          onRewind={(message) => setRewindTarget(message)}
+        />
 
-      {outputsOpen ? (
-        <aside className="w-[260px] shrink-0 overflow-y-auto border-l border-[var(--border-subtle)] px-3 py-3">
-          <div className="mb-2 text-[13px] font-medium text-[var(--text-faint)]">Outputs</div>
-          {(taskDetail?.fileChanges ?? []).length === 0 ? (
-            <p className="text-[12.5px] text-[var(--text-faint)]">Chưa có tệp nào thay đổi.</p>
-          ) : (
-            (taskDetail?.fileChanges ?? []).map((change) => (
-              <button
-                key={change.id}
-                type="button"
-                onClick={() => void api.app.showItemInFolder(change.path)}
-                className="mb-1 flex w-full items-center gap-2 rounded-[8px] px-1.5 py-1 text-left transition-colors hover:bg-[var(--bg-hover)]"
-              >
-                <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-[var(--text)]">
-                  {change.path.split('/').pop()}
-                </span>
-                <span className="shrink-0 tabular-nums text-[11.5px] text-[var(--success)]">
-                  +{change.addedLines}
-                </span>
-                <span className="shrink-0 tabular-nums text-[11.5px] text-[var(--danger)]">
-                  −{change.removedLines}
-                </span>
-              </button>
-            ))
-          )}
-          {summaryOpen ? (
-            <div className="mt-4 border-t border-[var(--border-subtle)] pt-3">
-              <div className="mb-2 text-[13px] font-medium text-[var(--text-faint)]">Summary</div>
-              {settings['composer.showUsage'] !== false ? (
-            <SessionStats sessionId={session.id} />
-          ) : null}
-            </div>
-          ) : null}
-        </aside>
-      ) : null}
+        {outputsOpen ? (
+          <aside className="w-[260px] shrink-0 overflow-y-auto border-l border-[var(--border-subtle)] px-3 py-3">
+            <div className="mb-2 text-[13px] font-medium text-[var(--text-faint)]">Outputs</div>
+            {(taskDetail?.fileChanges ?? []).length === 0 ? (
+              <p className="text-[12.5px] text-[var(--text-faint)]">Chưa có tệp nào thay đổi.</p>
+            ) : (
+              (taskDetail?.fileChanges ?? []).map((change) => (
+                <button
+                  key={change.id}
+                  type="button"
+                  onClick={() => void api.app.showItemInFolder(change.path)}
+                  className="mb-1 flex w-full items-center gap-2 rounded-[8px] px-1.5 py-1 text-left transition-colors hover:bg-[var(--bg-hover)]"
+                >
+                  <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-[var(--text)]">
+                    {change.path.split('/').pop()}
+                  </span>
+                  <span className="shrink-0 tabular-nums text-[11.5px] text-[var(--success)]">
+                    +{change.addedLines}
+                  </span>
+                  <span className="shrink-0 tabular-nums text-[11.5px] text-[var(--danger)]">
+                    −{change.removedLines}
+                  </span>
+                </button>
+              ))
+            )}
+            {summaryOpen ? (
+              <div className="mt-4 border-t border-[var(--border-subtle)] pt-3">
+                <div className="mb-2 text-[13px] font-medium text-[var(--text-faint)]">Summary</div>
+                {settings['composer.showUsage'] !== false ? (
+                  <SessionStats sessionId={session.id} />
+                ) : null}
+              </div>
+            ) : null}
+          </aside>
+        ) : null}
       </div>
 
       <div className="shrink-0 px-3 pb-4 pt-3">

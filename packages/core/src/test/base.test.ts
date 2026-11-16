@@ -6,6 +6,7 @@ import { test } from 'node:test'
 
 import { SecretStore } from '../secrets.ts'
 import { decidePermission, dangerousCommand, redactSecrets } from '../security.ts'
+import { countTokens, shrinkToTokens } from '../tokens.ts'
 import {
   base64Decode,
   base64Encode,
@@ -27,6 +28,21 @@ import {
 
 const tempDir = (): string => mkdtempSync(join(tmpdir(), 'nexus-core-test-'))
 
+test('tokens: BPE count', () => {
+  assert.equal(countTokens('hello world'), 2)
+  assert.ok(countTokens('xin chào thế giới') >= 4)
+  assert.equal(countTokens(''), 0)
+})
+
+test('tokens: shrink to token budget', () => {
+  const text = 'xin chào '.repeat(500)
+  const shrunk = shrinkToTokens(text, 50, 'gpt-4o')
+  assert.ok(shrunk.length < text.length)
+  assert.ok(countTokens(shrunk, 'gpt-4o') <= 120)
+  assert.match(shrunk, /token budget 50/)
+  assert.equal(shrinkToTokens('ngắn', 100), 'ngắn')
+})
+
 test('util: path/string helpers', () => {
   assert.equal(basename('/a/b/c.txt'), 'c.txt')
   assert.equal(dirname('/a/b/c.txt'), '/a/b')
@@ -47,10 +63,7 @@ test('util: glob match', () => {
 test('util: encoding + hashing', () => {
   const encoded = base64Encode('nexus')
   assert.equal(base64Decode(encoded), 'nexus')
-  assert.equal(
-    sha256Hex('abc'),
-    'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
-  )
+  assert.equal(sha256Hex('abc'), 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad')
   const id = uuid()
   assert.equal(id.length, 36)
   assert.equal(id[8], '-')

@@ -17,7 +17,11 @@ export function fireConfetti(count = 80): void {
           opacity: 0,
         },
       ],
-      { duration: 1800 + Math.random() * 1200, easing: 'cubic-bezier(.2,.6,.4,1)', delay: index * 8 },
+      {
+        duration: 1800 + Math.random() * 1200,
+        easing: 'cubic-bezier(.2,.6,.4,1)',
+        delay: index * 8,
+      },
     )
   }
   window.setTimeout(() => layer.remove(), 3600)

@@ -3,19 +3,31 @@ import { resolve } from 'node:path'
 
 import { NexusError } from './errors.ts'
 import type { JsonValue } from './types.ts'
-import {
-  runProcess,
-  split,
-  startsWith,
-  toPosix,
-  trim,
-  utf8Prefix,
-} from './util.ts'
+import { runProcess, split, startsWith, toPosix, trim, utf8Prefix } from './util.ts'
 
 const ALLOWED_OPERATIONS = new Set([
-  'status', 'diff', 'log', 'branch', 'rev-parse', 'rev-list', 'show', 'add', 'reset',
-  'commit', 'checkout', 'switch', 'fetch', 'pull', 'push', 'remote', 'restore', 'stash',
-  'config', 'ls-files', 'merge-base', 'symbolic-ref',
+  'status',
+  'diff',
+  'log',
+  'branch',
+  'rev-parse',
+  'rev-list',
+  'show',
+  'add',
+  'reset',
+  'commit',
+  'checkout',
+  'switch',
+  'fetch',
+  'pull',
+  'push',
+  'remote',
+  'restore',
+  'stash',
+  'config',
+  'ls-files',
+  'merge-base',
+  'symbolic-ref',
 ])
 
 const CONFLICT_PAIRS = new Set(['DD', 'AU', 'UD', 'UA', 'DU', 'AA', 'UU'])
@@ -138,7 +150,12 @@ export class GitEngine {
     const summary: Record<string, JsonValue> = { ahead: 0, behind: 0 }
     const branch = await this.tryRun(['branch', '--show-current'])
     if (branch.code === 0 && trim(branch.out) !== '') summary['branch'] = trim(branch.out)
-    const upstream = await this.tryRun(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'])
+    const upstream = await this.tryRun([
+      'rev-parse',
+      '--abbrev-ref',
+      '--symbolic-full-name',
+      '@{upstream}',
+    ])
     if (upstream.code === 0) {
       const name = trim(upstream.out)
       if (name !== '') {
@@ -162,7 +179,10 @@ export class GitEngine {
     if (!(await this.isRepo())) {
       return { ahead: 0, behind: 0, files: [], clean: true, isRepo: false }
     }
-    const porcelain = await this.run(['status', '--porcelain=v1', '-z', '--untracked-files=all'], 30_000)
+    const porcelain = await this.run(
+      ['status', '--porcelain=v1', '-z', '--untracked-files=all'],
+      30_000,
+    )
     const files = parsePorcelain(porcelain.out)
     const summary = await this.branchSummary()
     summary['files'] = files as unknown as JsonValue[]

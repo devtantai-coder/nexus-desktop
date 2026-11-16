@@ -5,10 +5,25 @@ import type { HttpResponse } from './http.ts'
 import { redactSecrets } from './security.ts'
 import { SecretStore } from './secrets.ts'
 import type { Store } from './store.ts'
+import { splitModelVariant } from '../../shared/src/model_variant.ts'
+import { createOpenAI } from '@ai-sdk/openai'
+import { jsonSchema, smoothStream, streamText, tool, type ModelMessage, type ToolSet } from 'ai'
 
- 
 export type Json = any
-import { endsWith, jsonBool, jsonDouble, jsonInt, jsonStr, nowMs, optString, startsWith, toLower, trim, urlEncode, uuid } from './util.ts'
+import {
+  endsWith,
+  jsonBool,
+  jsonDouble,
+  jsonInt,
+  jsonStr,
+  nowMs,
+  optString,
+  startsWith,
+  toLower,
+  trim,
+  urlEncode,
+  uuid,
+} from './util.ts'
 
 export interface ChatMessage {
   role: string
@@ -44,9 +59,27 @@ const providerNeedsKey = (kind: string): boolean =>
 
 const supportsStreamUsage = (kind: string): boolean =>
   new Set([
-    'openai', 'openai-compatible', 'azure-openai', 'deepseek', 'openrouter', 'groq',
-    'mistral', 'xai', 'together', 'fireworks', 'cerebras', 'deepinfra', 'github-models',
-    'lmstudio', 'llamacpp', 'vllm', 'qwen', 'moonshot', 'zai', 'minimax',
+    'openai',
+    'openai-compatible',
+    'vercel',
+    'azure-openai',
+    'deepseek',
+    'openrouter',
+    'groq',
+    'mistral',
+    'xai',
+    'together',
+    'fireworks',
+    'cerebras',
+    'deepinfra',
+    'github-models',
+    'lmstudio',
+    'llamacpp',
+    'vllm',
+    'qwen',
+    'moonshot',
+    'zai',
+    'minimax',
   ]).has(kind)
 
 function chatEndpoint(base: string, kind: string): string {
@@ -59,7 +92,8 @@ function chatEndpoint(base: string, kind: string): string {
   return url
 }
 
-const modelsEndpoint = (base: string): string => (endsWith(base, '/models') ? base : `${base}/models`)
+const modelsEndpoint = (base: string): string =>
+  endsWith(base, '/models') ? base : `${base}/models`
 
 function addAuthHeaders(headers: Record<string, string>, kind: string, key: string): void {
   if (key === '') return
@@ -89,9 +123,25 @@ const promptCacheEnabled = (store: Store, base: string): boolean => {
 }
 
 const ID_REASONING_NEEDLES = [
-  'o1', 'o3', 'o4', 'r1', 'reason', 'thinking',
-  'qwq', 'gpt-5', 'glm-4.5', 'glm-4.6', 'glm-5', 'deepseek-reasoner',
-  'deepseek-v3', 'claude-3-7', 'claude-4', 'grok', 'kimi-k2', 'sonar', 'minimax-m1',
+  'o1',
+  'o3',
+  'o4',
+  'r1',
+  'reason',
+  'thinking',
+  'qwq',
+  'gpt-5',
+  'glm-4.5',
+  'glm-4.6',
+  'glm-5',
+  'deepseek-reasoner',
+  'deepseek-v3',
+  'claude-3-7',
+  'claude-4',
+  'grok',
+  'kimi-k2',
+  'sonar',
+  'minimax-m1',
 ]
 
 const idMatchesReasoning = (id: string): boolean =>
@@ -136,15 +186,26 @@ const ensureSuccess = (response: HttpResponse, name: string): void => {
   }
 }
 
-const providerName = (provider: Json): string => jsonStr(provider, 'name', jsonStr(provider, 'kind', 'provider'))
+const providerName = (provider: Json): string =>
+  jsonStr(provider, 'name', jsonStr(provider, 'kind', 'provider'))
 
 const parseToolArguments = (raw: string): Json => {
   if (raw === '') return {}
   try {
     const parsed = JSON.parse(raw)
-    return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : { value: parsed }
+    return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed
+      : { value: parsed }
   } catch {
     return { _raw: raw }
+  }
+}
+
+const parseJsonBody = (response: HttpResponse, name: string): Json => {
+  try {
+    return JSON.parse(response.body)
+  } catch {
+    throw new NexusError('E_PROVIDER', `${name}: invalid JSON response`)
   }
 }
 
@@ -154,58 +215,212 @@ const modelWireId = (model: Json): string => {
   return id
 }
 
+const aiSdkPrompt = (messages: ChatMessage[]): { system: string; messages: Json[] } => {
+  let system = ''
+  const converted: Json[] = []
+  for (const message of messages) {
+    if (message.role === 'system') {
+      system = system === '' ? message.content : `${system}\n\n${message.content}`
+      continue
+    }
+    if (message.role === 'user') {
+      const images = Array.isArray(message.images) ? message.images : []
+      if (images.length === 0) {
+        converted.push({ role: 'user', content: message.content })
+        continue
+      }
+      const parts: Json[] = []
+      if (message.content !== '') parts.push({ type: 'text', text: message.content })
+      for (const image of images) {
+        const data = typeof image?.['base64'] === 'string' ? image['base64'] : ''
+        if (data === '') continue
+        parts.push({
+          type: 'image',
+          image: data,
+          mediaType: typeof image?.['mimeType'] === 'string' ? image['mimeType'] : 'image/png',
+        })
+      }
+      converted.push({ role: 'user', content: parts.length > 0 ? parts : message.content })
+      continue
+    }
+    if (message.role === 'assistant') {
+      const calls = Array.isArray(message.tool_calls) ? message.tool_calls : []
+      if (calls.length === 0) {
+        converted.push({ role: 'assistant', content: message.content })
+        continue
+      }
+      const parts: Json[] = []
+      if (message.content !== '') parts.push({ type: 'text', text: message.content })
+      for (const call of calls) {
+        const fn = call?.['function']
+        if (fn === null || typeof fn !== 'object') continue
+        parts.push({
+          type: 'tool-call',
+          toolCallId: jsonStr(call, 'id'),
+          toolName: jsonStr(fn, 'name'),
+          input: parseToolArguments(
+            typeof fn['arguments'] === 'string'
+              ? fn['arguments']
+              : JSON.stringify(fn['arguments'] ?? {}),
+          ),
+        })
+      }
+      converted.push({ role: 'assistant', content: parts.length > 0 ? parts : message.content })
+      continue
+    }
+    if (message.role === 'tool') {
+      converted.push({
+        role: 'tool',
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: message.tool_call_id ?? '',
+            toolName: message.name ?? '',
+            output: { type: 'text', value: message.content },
+          },
+        ],
+      })
+    }
+  }
+  return { system, messages: converted }
+}
+
+const aiSdkTools = (schemas: Json[], textMode: boolean): ToolSet => {
+  if (textMode || !Array.isArray(schemas) || schemas.length === 0) return {}
+  const result: Record<string, Json> = {}
+  for (const schema of schemas) {
+    const name = jsonStr(schema, 'name')
+    if (name === '') continue
+    const parameters = schema?.['parameters']
+    result[name] = tool({
+      description: jsonStr(schema, 'description').slice(0, 320),
+      inputSchema: jsonSchema(
+        parameters !== null && typeof parameters === 'object' && !Array.isArray(parameters)
+          ? (parameters as Json)
+          : { type: 'object', properties: {} },
+      ),
+    })
+  }
+  return result as ToolSet
+}
+
 const CATALOGS: Record<string, string[]> = {
   openai: [
-    'gpt-5', 'gpt-5-mini', 'gpt-5-nano', 'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano',
-    'gpt-4o', 'gpt-4o-mini', 'o1', 'o1-mini', 'o1-pro', 'o3', 'o3-mini', 'o4-mini',
-    'codex-mini-latest', 'gpt-4o-search-preview',
+    'gpt-5',
+    'gpt-5-mini',
+    'gpt-5-nano',
+    'gpt-4.1',
+    'gpt-4.1-mini',
+    'gpt-4.1-nano',
+    'gpt-4o',
+    'gpt-4o-mini',
+    'o1',
+    'o1-mini',
+    'o1-pro',
+    'o3',
+    'o3-mini',
+    'o4-mini',
+    'codex-mini-latest',
+    'gpt-4o-search-preview',
   ],
   anthropic: [
-    'claude-opus-4-1', 'claude-opus-4-0', 'claude-sonnet-4-5', 'claude-sonnet-4-0',
-    'claude-haiku-4-5', 'claude-3-7-sonnet-latest', 'claude-3-5-sonnet-latest',
+    'claude-opus-4-1',
+    'claude-opus-4-0',
+    'claude-sonnet-4-5',
+    'claude-sonnet-4-0',
+    'claude-haiku-4-5',
+    'claude-3-7-sonnet-latest',
+    'claude-3-5-sonnet-latest',
     'claude-3-5-haiku-latest',
   ],
   google: [
-    'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.5-flash-lite',
-    'gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemma-3-27b-it',
+    'gemini-2.5-pro',
+    'gemini-2.5-flash',
+    'gemini-2.5-flash-lite',
+    'gemini-2.0-flash',
+    'gemini-2.0-flash-lite',
+    'gemma-3-27b-it',
     'gemini-2.0-deep-research-exp-1220',
   ],
   deepseek: [
-    'deepseek-chat', 'deepseek-reasoner', 'deepseek-v3', 'deepseek-v3.1',
-    'deepseek-v3.2', 'deepseek-coder',
+    'deepseek-chat',
+    'deepseek-reasoner',
+    'deepseek-v3',
+    'deepseek-v3.1',
+    'deepseek-v3.2',
+    'deepseek-coder',
   ],
   qwen: [
-    'qwen-max', 'qwen-max-latest', 'qwen-plus', 'qwen-plus-latest', 'qwen-turbo',
-    'qwen3-max', 'qwen3-235b-a22b', 'qwen3-coder-plus', 'qwq-32b', 'qwen3-32b',
-    'qwen-vl-max', 'qwen-long',
+    'qwen-max',
+    'qwen-max-latest',
+    'qwen-plus',
+    'qwen-plus-latest',
+    'qwen-turbo',
+    'qwen3-max',
+    'qwen3-235b-a22b',
+    'qwen3-coder-plus',
+    'qwq-32b',
+    'qwen3-32b',
+    'qwen-vl-max',
+    'qwen-long',
   ],
   moonshot: [
-    'kimi-latest', 'kimi-k2-0905-preview', 'kimi-k2-thinking', 'kimi-k2-turbo-preview',
-    'moonshot-v1-128k', 'moonshot-v1-32k', 'moonshot-v1-auto',
+    'kimi-latest',
+    'kimi-k2-0905-preview',
+    'kimi-k2-thinking',
+    'kimi-k2-turbo-preview',
+    'moonshot-v1-128k',
+    'moonshot-v1-32k',
+    'moonshot-v1-auto',
   ],
   zai: [
-    'glm-4.6', 'glm-4.5', 'glm-4.5-air', 'glm-4.5-flash', 'glm-4.6v', 'glm-4.5v',
-    'glm-4-plus', 'glm-4-long', 'glm-4-flash',
+    'glm-4.6',
+    'glm-4.5',
+    'glm-4.5-air',
+    'glm-4.5-flash',
+    'glm-4.6v',
+    'glm-4.5v',
+    'glm-4-plus',
+    'glm-4-long',
+    'glm-4-flash',
   ],
   minimax: ['MiniMax-M2', 'MiniMax-M1', 'MiniMax-Text-01', 'MiniMax-M1-80k'],
   xai: [
-    'grok-4-latest', 'grok-4-fast', 'grok-4-fast-reasoning', 'grok-code-fast-1',
-    'grok-3', 'grok-3-mini',
+    'grok-4-latest',
+    'grok-4-fast',
+    'grok-4-fast-reasoning',
+    'grok-code-fast-1',
+    'grok-3',
+    'grok-3-mini',
   ],
   groq: [
-    'llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'openai/gpt-oss-120b',
-    'openai/gpt-oss-20b', 'moonshotai/kimi-k2-instruct-0905',
-    'deepseek-r1-distill-llama-70b', 'qwen-2.5-32b', 'llama-3.2-90b-vision-preview',
+    'llama-3.3-70b-versatile',
+    'llama-3.1-8b-instant',
+    'openai/gpt-oss-120b',
+    'openai/gpt-oss-20b',
+    'moonshotai/kimi-k2-instruct-0905',
+    'deepseek-r1-distill-llama-70b',
+    'qwen-2.5-32b',
+    'llama-3.2-90b-vision-preview',
   ],
   mistral: [
-    'mistral-large-latest', 'mistral-medium-latest', 'mistral-small-latest',
-    'magistral-medium-latest', 'magistral-small-latest', 'codestral-latest',
-    'devstral-small-latest', 'pixtral-large-latest', 'mistral-saba-latest',
+    'mistral-large-latest',
+    'mistral-medium-latest',
+    'mistral-small-latest',
+    'magistral-medium-latest',
+    'magistral-small-latest',
+    'codestral-latest',
+    'devstral-small-latest',
+    'pixtral-large-latest',
+    'mistral-saba-latest',
   ],
   together: [
-    'meta-llama/Llama-3.3-70B-Instruct-Turbo', 'meta-llama/Llama-3.1-8B-Instruct-Turbo',
-    'deepseek-ai/DeepSeek-R1', 'deepseek-ai/DeepSeek-V3',
-    'Qwen/Qwen2.5-Coder-32B-Instruct', 'moonshotai/Kimi-K2-Instruct',
+    'meta-llama/Llama-3.3-70B-Instruct-Turbo',
+    'meta-llama/Llama-3.1-8B-Instruct-Turbo',
+    'deepseek-ai/DeepSeek-R1',
+    'deepseek-ai/DeepSeek-V3',
+    'Qwen/Qwen2.5-Coder-32B-Instruct',
+    'moonshotai/Kimi-K2-Instruct',
     'Qwen/Qwen3-235B-A22B-Instruct-2507-tput',
   ],
   fireworks: [
@@ -217,30 +432,56 @@ const CATALOGS: Record<string, string[]> = {
     'accounts/fireworks/models/llama-v3p3-70b-instruct',
   ],
   cohere: [
-    'command-a-03-2025', 'command-a-reasoning-08-2025', 'command-r-plus-08-2024',
-    'command-r-08-2024', 'code-command-r-plus-04-2025',
+    'command-a-03-2025',
+    'command-a-reasoning-08-2025',
+    'command-r-plus-08-2024',
+    'command-r-08-2024',
+    'code-command-r-plus-04-2025',
   ],
   perplexity: [
-    'sonar', 'sonar-pro', 'sonar-reasoning', 'sonar-reasoning-pro',
-    'sonar-deep-research', 'sonar-pro-search-preview',
+    'sonar',
+    'sonar-pro',
+    'sonar-reasoning',
+    'sonar-reasoning-pro',
+    'sonar-deep-research',
+    'sonar-pro-search-preview',
   ],
   cerebras: [
-    'llama-3.3-70b', 'llama-3.1-8b', 'gpt-oss-120b', 'qwen-3-32b',
+    'llama-3.3-70b',
+    'llama-3.1-8b',
+    'gpt-oss-120b',
+    'qwen-3-32b',
     'qwen-3-235b-a22b-instruct-2507',
   ],
   deepinfra: [
-    'deepseek-ai/DeepSeek-V3', 'deepseek-ai/DeepSeek-R1',
+    'deepseek-ai/DeepSeek-V3',
+    'deepseek-ai/DeepSeek-R1',
     'meta-llama/Llama-3.3-70B-Instruct',
-    'Qwen/Qwen2.5-Coder-32B-Instruct', 'moonshotai/Kimi-K2-Instruct',
+    'Qwen/Qwen2.5-Coder-32B-Instruct',
+    'moonshotai/Kimi-K2-Instruct',
   ],
   'github-models': [
-    'gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'gpt-4.1-mini', 'o1', 'o3-mini',
-    'DeepSeek-R1', 'Meta-Llama-3.3-70B-Instruct',
-    'Mistral-Large-2411', 'Phi-4', 'gpt-5',
+    'gpt-4o',
+    'gpt-4o-mini',
+    'gpt-4.1',
+    'gpt-4.1-mini',
+    'o1',
+    'o3-mini',
+    'DeepSeek-R1',
+    'Meta-Llama-3.3-70B-Instruct',
+    'Mistral-Large-2411',
+    'Phi-4',
+    'gpt-5',
   ],
   'azure-openai': [
-    'gpt-5', 'gpt-4.1', 'gpt-4.1-mini', 'gpt-4o', 'gpt-4o-mini', 'o3',
-    'o3-mini', 'o4-mini',
+    'gpt-5',
+    'gpt-4.1',
+    'gpt-4.1-mini',
+    'gpt-4o',
+    'gpt-4o-mini',
+    'o3',
+    'o3-mini',
+    'o4-mini',
   ],
 }
 
@@ -256,25 +497,58 @@ function catalogModels(kind: string, base: string): string[] {
   if (tag.includes('deepseek')) return CATALOGS['deepseek'] as string[]
   if (tag.includes('openrouter')) {
     return [
-      'openai/gpt-4o', 'openai/gpt-4o-mini', 'openai/gpt-5', 'openai/o3',
-      'anthropic/claude-sonnet-4.5', 'anthropic/claude-haiku-4.5',
-      'deepseek/deepseek-chat', 'deepseek/deepseek-r1', 'deepseek/deepseek-v3.2',
-      'google/gemini-2.5-pro', 'google/gemini-2.5-flash',
-      'meta-llama/llama-3.3-70b-instruct', 'moonshotai/kimi-k2-0905',
-      'qwen/qwen3-32b', 'qwen/qwen-2.5-coder-32b-instruct',
-      'x-ai/grok-4-fast', 'z-ai/glm-4.6', 'minimax/minimax-m2',
+      'openai/gpt-4o',
+      'openai/gpt-4o-mini',
+      'openai/gpt-5',
+      'openai/o3',
+      'anthropic/claude-sonnet-4.5',
+      'anthropic/claude-haiku-4.5',
+      'deepseek/deepseek-chat',
+      'deepseek/deepseek-r1',
+      'deepseek/deepseek-v3.2',
+      'google/gemini-2.5-pro',
+      'google/gemini-2.5-flash',
+      'meta-llama/llama-3.3-70b-instruct',
+      'moonshotai/kimi-k2-0905',
+      'qwen/qwen3-32b',
+      'qwen/qwen-2.5-coder-32b-instruct',
+      'x-ai/grok-4-fast',
+      'z-ai/glm-4.6',
+      'minimax/minimax-m2',
     ]
   }
   return [
-    'gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'gpt-4.1-mini', 'gpt-5', 'o3', 'o4-mini',
-    'deepseek-chat', 'deepseek-reasoner', 'qwen-plus', 'qwen-max', 'glm-4.6',
-    'kimi-k2-0905-preview', 'llama-3.3-70b-versatile', 'mistral-large-latest',
-    'gemini-2.5-flash', 'claude-sonnet-4-5', 'moonshotai/Kimi-K2-Instruct',
+    'gpt-4o',
+    'gpt-4o-mini',
+    'gpt-4.1',
+    'gpt-4.1-mini',
+    'gpt-5',
+    'o3',
+    'o4-mini',
+    'deepseek-chat',
+    'deepseek-reasoner',
+    'qwen-plus',
+    'qwen-max',
+    'glm-4.6',
+    'kimi-k2-0905-preview',
+    'llama-3.3-70b-versatile',
+    'mistral-large-latest',
+    'gemini-2.5-flash',
+    'claude-sonnet-4-5',
+    'moonshotai/Kimi-K2-Instruct',
   ]
 }
 
-const MANDATORY_NEEDLES = ['o1', 'deepseek-reasoner', 'deepseek-r1', 'qwq', 'kimi-k2-thinking', 'sonar-reasoning']
-const isMandatoryReasoning = (id: string): boolean => MANDATORY_NEEDLES.some((needle) => id.includes(needle))
+const MANDATORY_NEEDLES = [
+  'o1',
+  'deepseek-reasoner',
+  'deepseek-r1',
+  'qwq',
+  'kimi-k2-thinking',
+  'sonar-reasoning',
+]
+const isMandatoryReasoning = (id: string): boolean =>
+  MANDATORY_NEEDLES.some((needle) => id.includes(needle))
 
 function makeModelEntry(
   id: string,
@@ -285,8 +559,11 @@ function makeModelEntry(
   context: number,
   maxOutput: number,
 ): Json {
+  const parts = splitModelVariant(id)
   const entry: Record<string, Json> = {
     id,
+    baseModelId: parts.baseModelId,
+    variant: parts.variant,
     supportsReasoning,
     supportedReasoningEfforts: efforts,
     reasoningMandatory: mandatory,
@@ -314,13 +591,20 @@ function catalogEntries(kind: string, base: string): Json[] {
     const supported = idMatchesReasoning(lowered)
     const mandatory = supported && isMandatoryReasoning(lowered)
     const gpt5Family =
-      lowered.includes('gpt-5') || lowered.includes('gpt-oss') || lowered.includes('o3') || lowered.includes('o4')
+      lowered.includes('gpt-5') ||
+      lowered.includes('gpt-oss') ||
+      lowered.includes('o3') ||
+      lowered.includes('o4')
     result.push(
       makeModelEntry(
         id,
         '',
         supported,
-        supported ? (gpt5Family ? ['minimal', 'low', 'medium', 'high'] : ['low', 'medium', 'high']) : [],
+        supported
+          ? gpt5Family
+            ? ['minimal', 'low', 'medium', 'high']
+            : ['low', 'medium', 'high']
+          : [],
         mandatory,
         0,
         0,
@@ -344,6 +628,7 @@ export class Providers {
   static defaultBaseUrl(kind: string): string {
     const bases: Record<string, string> = {
       openai: 'https://api.openai.com/v1',
+      vercel: 'https://ai-gateway.vercel.app/v1',
       anthropic: 'https://api.anthropic.com/v1',
       google: 'https://generativelanguage.googleapis.com/v1beta',
       deepseek: 'https://api.deepseek.com/v1',
@@ -366,8 +651,7 @@ export class Providers {
       lmstudio: 'http://127.0.0.1:1234/v1',
       llamacpp: 'http://127.0.0.1:8080/v1',
       vllm: 'http://127.0.0.1:8000/v1',
-      'azure-openai':
-        'https://YOUR-RESOURCE.openai.azure.com/openai/deployments/YOUR-DEPLOYMENT',
+      'azure-openai': 'https://YOUR-RESOURCE.openai.azure.com/openai/deployments/YOUR-DEPLOYMENT',
     }
     return bases[kind] ?? 'http://localhost:8000/v1'
   }
@@ -376,11 +660,22 @@ export class Providers {
     const id = toLower(modelId)
     const has = (needles: string[]): boolean => needles.some((needle) => id.includes(needle))
     if (
-      has(['claude', 'gemini-1.5', 'gemini-2', 'gpt-4.1', 'gpt-5', 'o3', 'o4', 'deepseek-v3', 'minimax'])
+      has([
+        'claude',
+        'gemini-1.5',
+        'gemini-2',
+        'gpt-4.1',
+        'gpt-5',
+        'o3',
+        'o4',
+        'deepseek-v3',
+        'minimax',
+      ])
     ) {
       return [200000, 16384]
     }
-    if (has(['gpt-4o', 'gemini', 'grok', 'kimi', 'moonshot', 'glm', 'command-r'])) return [128000, 16384]
+    if (has(['gpt-4o', 'gemini', 'grok', 'kimi', 'moonshot', 'glm', 'command-r']))
+      return [128000, 16384]
     if (has(['qwen', 'llama-3.3', 'llama3'])) return [128000, 8192]
     if (has(['deepseek-reasoner', 'r1'])) return [64000, 8192]
     if (has(['deepseek'])) return [64000, 8192]
@@ -401,8 +696,20 @@ export class Providers {
       categories.add('coding')
     }
     if (
-      has(['o1', 'o3', 'o4', 'reason', 'r1', 'thinking', 'deepseek-v3', 'qwq', 'grok', 'glm-4',
-        'kimi', 'sonar'])
+      has([
+        'o1',
+        'o3',
+        'o4',
+        'reason',
+        'r1',
+        'thinking',
+        'deepseek-v3',
+        'qwq',
+        'grok',
+        'glm-4',
+        'kimi',
+        'sonar',
+      ])
     ) {
       categories.add('reasoning')
     }
@@ -410,8 +717,19 @@ export class Providers {
       categories.add('vision')
     }
     if (
-      has(['gpt-4', 'claude', 'gemini', 'qwen', 'llama-3.', 'mistral-large', 'deepseek', 'grok',
-        'kimi', 'glm', 'command-r'])
+      has([
+        'gpt-4',
+        'claude',
+        'gemini',
+        'qwen',
+        'llama-3.',
+        'mistral-large',
+        'deepseek',
+        'grok',
+        'kimi',
+        'glm',
+        'command-r',
+      ])
     ) {
       categories.add('tools')
     }
@@ -446,7 +764,11 @@ export class Providers {
 
   setKey(id: string, apiKey: Json): Json {
     this.store.providerRaw(id)
-    if (apiKey === null || apiKey === undefined || (typeof apiKey === 'string' && trim(apiKey) === '')) {
+    if (
+      apiKey === null ||
+      apiKey === undefined ||
+      (typeof apiKey === 'string' && trim(apiKey) === '')
+    ) {
       return this.store.providerSetKey(id, null, null)
     }
     if (typeof apiKey !== 'string') throw new NexusError('E_VALIDATION', 'API key must be a string')
@@ -498,7 +820,7 @@ export class Providers {
     const cipher = optString(provider, 'apiKeyCipher')
     const key = cipher === '' ? '' : this.apiKey(jsonStr(provider, 'id'))
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-    let url = ''
+    let url: string
     if (kind === 'anthropic') {
       headers['x-api-key'] = key
       headers['anthropic-version'] = '2023-06-01'
@@ -516,13 +838,19 @@ export class Providers {
       }
     }
     let entries: Json[] = []
-    let detail = ''
+    let detail: string
     try {
       if (kind === 'azure-openai') {
-        throw new NexusError('E_PROVIDER', 'Discovery endpoint is not available for this provider kind')
+        throw new NexusError(
+          'E_PROVIDER',
+          'Discovery endpoint is not available for this provider kind',
+        )
       }
       if (kind === 'perplexity') {
-        throw new NexusError('E_PROVIDER', 'Discovery endpoint is not available for this provider kind')
+        throw new NexusError(
+          'E_PROVIDER',
+          'Discovery endpoint is not available for this provider kind',
+        )
       }
       const response = await httpRequest({ url, method: 'GET', headers, timeoutSeconds: 30 })
       ensureSuccess(response, jsonStr(provider, 'name', 'provider'))
@@ -560,7 +888,8 @@ export class Providers {
               const capabilities = showBody?.['capabilities']
               if (Array.isArray(capabilities)) {
                 supported = capabilities.some(
-                  (capability) => typeof capability === 'string' && toLower(capability) === 'thinking',
+                  (capability) =>
+                    typeof capability === 'string' && toLower(capability) === 'thinking',
                 )
               }
             }
@@ -644,12 +973,20 @@ export class Providers {
               : ['low', 'medium', 'high']
             : []
           const context = jsonLooseInt(entry, [
-            'context_length', 'context_window', 'max_model_len',
-            'max_context_length', 'inputTokenLimit', 'max_tokens_limit', 'max_context_tokens',
+            'context_length',
+            'context_window',
+            'max_model_len',
+            'max_context_length',
+            'inputTokenLimit',
+            'max_tokens_limit',
+            'max_context_tokens',
           ])
           const maxOutput = jsonLooseInt(entry, [
-            'max_output_tokens', 'max_completion_tokens', 'max_tokens',
-            'outputTokenLimit', 'max_output_tokens_limit',
+            'max_output_tokens',
+            'max_completion_tokens',
+            'max_tokens',
+            'outputTokenLimit',
+            'max_output_tokens_limit',
           ])
           entries.push(
             makeModelEntry(
@@ -739,10 +1076,181 @@ export class Providers {
     abort?: AbortSignal,
   ): Promise<ChatResult> {
     const kind = jsonStr(provider, 'kind')
-    if (kind === 'anthropic') return this.chatAnthropic(provider, model, messages, tools, textMode, onDelta, abort)
-    if (kind === 'google') return this.chatGemini(provider, model, messages, tools, textMode, onDelta, abort)
-    if (kind === 'ollama') return this.chatOllama(provider, model, messages, tools, textMode, onDelta, abort)
+    if (kind === 'anthropic')
+      return this.chatAnthropic(provider, model, messages, tools, textMode, onDelta, abort)
+    if (kind === 'google')
+      return this.chatGemini(provider, model, messages, tools, textMode, onDelta, abort)
+    if (kind === 'ollama')
+      return this.chatOllama(provider, model, messages, tools, textMode, onDelta, abort)
+    if (kind !== 'azure-openai') {
+      const result = await this.chatAiSdk(provider, model, messages, tools, textMode, onDelta, abort)
+      if (result !== null) return result
+    }
     return this.chatOpenAI(provider, model, messages, tools, textMode, onDelta, abort)
+  }
+
+  async embed(provider: Json, model: Json, inputs: string[]): Promise<number[][]> {
+    const name = providerName(provider)
+    const kind = jsonStr(provider, 'kind')
+    const key = this.apiKey(jsonStr(provider, 'id'))
+    if (key === '' && providerNeedsKey(kind)) {
+      throw new NexusError('E_AUTH', `${name}: API key is missing`)
+    }
+    if (inputs.length === 0) return []
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    addAuthHeaders(headers, kind, key)
+    const wireModel = modelWireId(model)
+    if (kind === 'ollama') {
+      const vectors: number[][] = []
+      for (const input of inputs) {
+        const response = await httpRequest({
+          method: 'POST',
+          url: `${baseUrlFor(provider)}/api/embeddings`,
+          headers,
+          body: JSON.stringify({ model: wireModel, input }),
+        })
+        ensureSuccess(response, name)
+        const json = parseJsonBody(response, name)
+        const vector = json?.['embedding']
+        if (Array.isArray(vector)) vectors.push(vector as number[])
+      }
+      return vectors
+    }
+    if (kind === 'anthropic' || kind === 'google') {
+      throw new NexusError('E_PROVIDER', `${name}: embeddings are not supported`)
+    }
+    const response = await httpRequest({
+      method: 'POST',
+      url: `${baseUrlFor(provider)}/embeddings`,
+      headers,
+      body: JSON.stringify({ model: wireModel, input: inputs }),
+    })
+    ensureSuccess(response, name)
+    const json = parseJsonBody(response, name)
+    const data = Array.isArray(json?.['data']) ? json['data'] : []
+    const vectors: number[][] = []
+    for (const item of data) {
+      const vector = item?.['embedding']
+      if (Array.isArray(vector)) vectors.push(vector as number[])
+    }
+    return vectors
+  }
+
+  private async chatAiSdk(
+    provider: Json,
+    model: Json,
+    messages: ChatMessage[],
+    tools: Json,
+    textMode: boolean,
+    onDelta: DeltaCallback | undefined,
+    abort: AbortSignal | undefined,
+  ): Promise<ChatResult | null> {
+    const name = providerName(provider)
+    const kind = jsonStr(provider, 'kind')
+    const key = this.apiKey(jsonStr(provider, 'id'))
+    if (key === '' && providerNeedsKey(kind)) {
+      throw new NexusError('E_AUTH', `${name}: API key is missing`)
+    }
+    const output: ChatResult = {
+      text: '',
+      reasoning: '',
+      finish_reason: '',
+      tool_calls: [],
+      usage: { input_tokens: 0, output_tokens: 0, cached_tokens: 0 },
+    }
+    let emitted = false
+    try {
+      const prompt = aiSdkPrompt(messages)
+      const toolSet = aiSdkTools(Array.isArray(tools) ? tools : [], textMode)
+      const headers: Record<string, string> = {}
+      if (kind === 'openrouter') {
+        headers['HTTP-Referer'] = 'https://nexus.local'
+        headers['X-Title'] = 'NEXUS Desktop'
+      }
+      const providerOptions: Record<string, Json> = {}
+      if (kind === 'openai' || kind === 'vercel') {
+        providerOptions[kind] = { promptCacheKey: this.promptCacheKey(messages) }
+      }
+      const client = createOpenAI({
+        baseURL: baseUrlFor(provider),
+        apiKey: key,
+        name: kind,
+        ...(Object.keys(headers).length > 0 ? { headers } : {}),
+      })
+      const result = streamText({
+        model: client.chat(modelWireId(model)),
+        ...(prompt.system !== '' ? { system: prompt.system } : {}),
+        messages: prompt.messages as ModelMessage[],
+        ...(Object.keys(toolSet).length > 0 ? { tools: toolSet } : {}),
+        maxRetries: 0,
+        abortSignal: abort,
+        temperature: jsonDouble(model, 'temperature', 0.2),
+        ...(jsonInt(model, 'maxOutputTokens', 0) > 0
+          ? { maxOutputTokens: jsonInt(model, 'maxOutputTokens', 0) }
+          : {}),
+        experimental_transform: smoothStream({ chunking: 'word' }),
+        onError: () => undefined,
+        ...(Object.keys(providerOptions).length > 0
+          ? { providerOptions: providerOptions as Json }
+          : {}),
+      })
+      for await (const part of result.fullStream) {
+        if (part.type === 'text-delta') {
+          if (part.text === '') continue
+          emitted = true
+          output.text += part.text
+          onDelta?.(part.text, '')
+          continue
+        }
+        if (part.type === 'reasoning-delta') {
+          if (part.text === '') continue
+          emitted = true
+          output.reasoning += part.text
+          onDelta?.('', part.text)
+          continue
+        }
+        if (part.type === 'tool-call') {
+          const call = part as unknown as {
+            toolCallId?: string
+            toolName?: string
+            input?: unknown
+          }
+          if (call.toolName === undefined || call.toolName === '') continue
+          emitted = true
+          output.tool_calls.push({
+            id: call.toolCallId && call.toolCallId !== '' ? call.toolCallId : `call-${uuid()}`,
+            name: call.toolName,
+            arguments: call.input ?? {},
+          })
+          continue
+        }
+        if (part.type === 'finish') {
+          output.finish_reason = part.finishReason
+          const usage = part.totalUsage
+          output.usage = {
+            input_tokens: usage.inputTokens ?? 0,
+            output_tokens: usage.outputTokens ?? 0,
+            cached_tokens: usage.inputTokenDetails?.cacheReadTokens ?? 0,
+          }
+          continue
+        }
+        if (part.type === 'error') {
+          const error = (part as { error?: unknown }).error
+          throw error instanceof Error ? error : new NexusError('E_PROVIDER', `${name}: stream error`)
+        }
+      }
+    } catch (error) {
+      if (abort?.aborted || (error instanceof NexusError && error.code === 'E_CANCELLED')) {
+        throw new NexusError('E_CANCELLED', 'Cancelled')
+      }
+      if (emitted) {
+        const message = error instanceof Error ? error.message : String(error)
+        throw new NexusError('E_PROVIDER', `${name}: ${message}`)
+      }
+      return null
+    }
+    if (output.finish_reason === '') output.finish_reason = 'stop'
+    return output
   }
 
   /* ------------------------------------------------------------------ openai */
@@ -771,7 +1279,11 @@ export class Providers {
     if (maxTokens > 0) payload['max_tokens'] = maxTokens
     const jsonMessages: Json[] = []
     for (const message of messages) {
-      if (message.role === 'assistant' && Array.isArray(message.tool_calls) && message.tool_calls.length > 0) {
+      if (
+        message.role === 'assistant' &&
+        Array.isArray(message.tool_calls) &&
+        message.tool_calls.length > 0
+      ) {
         const calls = message.tool_calls.map((call) => ({
           id: jsonStr(call, 'id'),
           type: 'function',
@@ -823,7 +1335,7 @@ export class Providers {
       payload['stream_options'] = { include_usage: true }
     }
     // Stick a conversation to the same cache shard so repeated prefixes keep hitting.
-    if (kind === 'openai') {
+    if (kind === 'openai' || kind === 'vercel') {
       payload['prompt_cache_key'] = this.promptCacheKey(messages)
     }
 
@@ -854,18 +1366,35 @@ export class Providers {
       if (!startsWith(line, 'data:')) return
       const data = trim(line.slice(5))
       if (data === '[DONE]') return
-      let chunk: Json = null
+      let chunk: Json
       try {
         chunk = JSON.parse(data)
       } catch {
         return
       }
-      if (chunk !== null && typeof chunk === 'object' && 'error' in chunk && chunk['error'] !== null && typeof chunk['error'] === 'object') {
-        throw new NexusError('E_PROVIDER', `${name}: ${jsonStr(chunk['error'], 'message', 'provider error')}`)
+      if (
+        chunk !== null &&
+        typeof chunk === 'object' &&
+        'error' in chunk &&
+        chunk['error'] !== null &&
+        typeof chunk['error'] === 'object'
+      ) {
+        throw new NexusError(
+          'E_PROVIDER',
+          `${name}: ${jsonStr(chunk['error'], 'message', 'provider error')}`,
+        )
       }
       if (chunk?.['usage'] && typeof chunk['usage'] === 'object') {
-        result.usage.input_tokens = jsonInt(chunk['usage'], 'prompt_tokens', result.usage.input_tokens)
-        result.usage.output_tokens = jsonInt(chunk['usage'], 'completion_tokens', result.usage.output_tokens)
+        result.usage.input_tokens = jsonInt(
+          chunk['usage'],
+          'prompt_tokens',
+          result.usage.input_tokens,
+        )
+        result.usage.output_tokens = jsonInt(
+          chunk['usage'],
+          'completion_tokens',
+          result.usage.output_tokens,
+        )
         const details = chunk['usage']['prompt_tokens_details']
         if (details && typeof details === 'object') {
           result.usage.cached_tokens = jsonInt(details, 'cached_tokens', 0)
@@ -909,7 +1438,8 @@ export class Providers {
           const functionEntry = call?.['function']
           if (functionEntry && typeof functionEntry === 'object') {
             if (typeof functionEntry['name'] === 'string') accumulator.name += functionEntry['name']
-            if (typeof functionEntry['arguments'] === 'string') accumulator.args += functionEntry['arguments']
+            if (typeof functionEntry['arguments'] === 'string')
+              accumulator.args += functionEntry['arguments']
           }
           accumulators.set(index, accumulator)
         }
@@ -992,7 +1522,11 @@ export class Providers {
         pushMessage({
           role: 'user',
           content: [
-            { type: 'tool_result', tool_use_id: message.tool_call_id ?? '', content: message.content },
+            {
+              type: 'tool_result',
+              tool_use_id: message.tool_call_id ?? '',
+              content: message.content,
+            },
           ],
         })
         continue
@@ -1009,7 +1543,7 @@ export class Providers {
             type: 'tool_use',
             id: jsonStr(call, 'id'),
             name: jsonStr(call, 'name'),
-            input: 'arguments' in call ? call['arguments'] ?? {} : {},
+            input: 'arguments' in call ? (call['arguments'] ?? {}) : {},
           })
         }
         pushMessage({ role: 'assistant', content: blocks })
@@ -1021,13 +1555,17 @@ export class Providers {
         for (const image of message.images) {
           const data = typeof image?.['base64'] === 'string' ? image['base64'] : ''
           if (data === '') continue
-          const mediaType = typeof image?.['mimeType'] === 'string' ? image['mimeType'] : 'image/png'
+          const mediaType =
+            typeof image?.['mimeType'] === 'string' ? image['mimeType'] : 'image/png'
           blocks.push({ type: 'image', source: { type: 'base64', media_type: mediaType, data } })
         }
         pushMessage({ role: 'user', content: blocks })
         continue
       }
-      pushMessage({ role: message.role === 'assistant' ? 'assistant' : 'user', content: message.content })
+      pushMessage({
+        role: message.role === 'assistant' ? 'assistant' : 'user',
+        content: message.content,
+      })
     }
     const payload: Record<string, Json> = {
       model: modelWireId(model),
@@ -1053,7 +1591,8 @@ export class Providers {
         input_schema: tool?.['parameters'] ?? {},
       }))
       if (cache && toolPayload.length > 0) {
-        (toolPayload[toolPayload.length - 1] as Record<string, Json>)['cache_control'] = cacheControl
+        ;(toolPayload[toolPayload.length - 1] as Record<string, Json>)['cache_control'] =
+          cacheControl
       }
       payload['tools'] = toolPayload
     }
@@ -1062,7 +1601,8 @@ export class Providers {
       if (typeof last['content'] === 'string') {
         last['content'] = [{ type: 'text', text: last['content'], cache_control: cacheControl }]
       } else if (Array.isArray(last['content']) && last['content'].length > 0) {
-        (last['content'][last['content'].length - 1] as Record<string, Json>)['cache_control'] = cacheControl
+        ;(last['content'][last['content'].length - 1] as Record<string, Json>)['cache_control'] =
+          cacheControl
       }
     }
     const request = {
@@ -1090,7 +1630,7 @@ export class Providers {
       if (!startsWith(line, 'data:')) return
       const data = trim(line.slice(5))
       if (data === '' || data === '[DONE]') return
-      let event: Json = null
+      let event: Json
       try {
         event = JSON.parse(data)
       } catch {
@@ -1099,7 +1639,10 @@ export class Providers {
       const type = jsonStr(event, 'type')
       if (type === 'error') {
         const errorObject = (event?.['error'] ?? {}) as Json
-        throw new NexusError('E_PROVIDER', `${name}: ${jsonStr(errorObject, 'message', 'stream error')}`)
+        throw new NexusError(
+          'E_PROVIDER',
+          `${name}: ${jsonStr(errorObject, 'message', 'stream error')}`,
+        )
       }
       if (type === 'message_start' && event?.['message'] && typeof event['message'] === 'object') {
         const usage = (event['message']['usage'] ?? {}) as Json
@@ -1112,8 +1655,16 @@ export class Providers {
         const block = (event?.['content_block'] ?? {}) as Json
         const blockType = jsonStr(block, 'type')
         if (blockType === 'tool_use') {
-          accumulators.set(index, { id: jsonStr(block, 'id'), name: jsonStr(block, 'name'), args: '' })
-        } else if (blockType === 'text' && typeof block?.['text'] === 'string' && block['text'] !== '') {
+          accumulators.set(index, {
+            id: jsonStr(block, 'id'),
+            name: jsonStr(block, 'name'),
+            args: '',
+          })
+        } else if (
+          blockType === 'text' &&
+          typeof block?.['text'] === 'string' &&
+          block['text'] !== ''
+        ) {
           result.text += block['text']
           onDelta?.(block['text'], '')
         }
@@ -1215,7 +1766,7 @@ export class Providers {
           parts.push({
             functionCall: {
               name: jsonStr(call, 'name'),
-              args: 'arguments' in call ? call['arguments'] ?? {} : {},
+              args: 'arguments' in call ? (call['arguments'] ?? {}) : {},
             },
           })
         }
@@ -1267,19 +1818,30 @@ export class Providers {
       if (!startsWith(line, 'data:')) return
       const data = trim(line.slice(5))
       if (data === '' || data === '[DONE]') return
-      let event: Json = null
+      let event: Json
       try {
         event = JSON.parse(data)
       } catch {
         return
       }
       if (event !== null && typeof event === 'object' && 'error' in event) {
-        throw new NexusError('E_PROVIDER', `${name}: ${jsonStr(event['error'], 'message', 'provider error')}`)
+        throw new NexusError(
+          'E_PROVIDER',
+          `${name}: ${jsonStr(event['error'], 'message', 'provider error')}`,
+        )
       }
       const usage = (event?.['usageMetadata'] ?? {}) as Json
       result.usage.input_tokens = jsonInt(usage, 'promptTokenCount', result.usage.input_tokens)
-      result.usage.output_tokens = jsonInt(usage, 'candidatesTokenCount', result.usage.output_tokens)
-      result.usage.cached_tokens = jsonInt(usage, 'cachedContentTokenCount', result.usage.cached_tokens)
+      result.usage.output_tokens = jsonInt(
+        usage,
+        'candidatesTokenCount',
+        result.usage.output_tokens,
+      )
+      result.usage.cached_tokens = jsonInt(
+        usage,
+        'cachedContentTokenCount',
+        result.usage.cached_tokens,
+      )
       const candidates = Array.isArray(event?.['candidates']) ? (event['candidates'] as Json[]) : []
       if (candidates.length === 0) return
       const candidate = candidates[0]
@@ -1306,7 +1868,10 @@ export class Providers {
           result.tool_calls.push({
             id: `call-${uuid()}`,
             name: jsonStr(call, 'name'),
-            arguments: 'args' in call && call['args'] !== null && typeof call['args'] === 'object' ? call['args'] : {},
+            arguments:
+              'args' in call && call['args'] !== null && typeof call['args'] === 'object'
+                ? call['args']
+                : {},
           })
         }
       }
@@ -1357,7 +1922,7 @@ export class Providers {
         entry['tool_calls'] = message.tool_calls.map((call) => ({
           function: {
             name: jsonStr(call, 'name'),
-            arguments: 'arguments' in call ? call['arguments'] ?? {} : {},
+            arguments: 'arguments' in call ? (call['arguments'] ?? {}) : {},
           },
         }))
       }
@@ -1399,7 +1964,7 @@ export class Providers {
     const handleLine = (rawLine: string): void => {
       const line = trim(rawLine)
       if (line === '') return
-      let event: Json = null
+      let event: Json
       try {
         event = JSON.parse(line)
       } catch {

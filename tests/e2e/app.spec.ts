@@ -65,7 +65,7 @@ test('boots the shell, exposes the secure bridge and persists a project', async 
   await expect(page).toHaveTitle(/NEXUS/)
   await expect(page.getByText('NEXUS', { exact: true }).first()).toBeVisible()
   await expect(page.getByRole('button', { name: 'New chat' }).first()).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Cài đặt' }).first()).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Tài khoản' }).first()).toBeVisible()
 
   expect(await page.evaluate(() => typeof window.nexus?.invoke === 'function')).toBe(true)
   expect(
@@ -248,7 +248,9 @@ test('manages MCP servers and exposes them in settings', async () => {
     .click()
   await page.getByLabel('Kiểm tra broken').click()
   await expect(page.getByText('broken: kết nối thất bại')).toBeVisible()
-  await expect(page.getByText(/exited|not running|No such file/i).first()).toBeVisible()
+  await expect(
+    page.getByText(/exited|not running|No such file|ENOENT|spawn/i).first(),
+  ).toBeVisible()
 
   // Dọn cấu hình để test sau không thấy server cũ.
   await page.evaluate(async () =>
@@ -357,7 +359,7 @@ test('reports why an MCP server failed to start', async () => {
     status: { running: boolean }
   }>
   expect(servers[0]?.status.running).toBe(false)
-  expect(servers[0]?.error ?? '').toMatch(/exited|not running|No such file/i)
+  expect(servers[0]?.error ?? '').toMatch(/exited|not running|No such file|ENOENT|spawn/i)
 
   await page.evaluate(async () =>
     window.nexus.invoke('settings.set', { key: 'mcp.servers', value: [] }),
@@ -578,6 +580,8 @@ test('authorizes an MCP server over OAuth', async () => {
 })
 
 test('composer offers slash commands and runs them', async () => {
+  await page.getByRole('button', { name: 'Home' }).click()
+  await expect(page.locator('textarea').first()).toBeVisible()
   await mkdir(join(projectDir, '.nexus/commands'), { recursive: true })
   await writeFile(
     join(projectDir, '.nexus/commands/review-pr.md'),
@@ -593,7 +597,6 @@ test('composer offers slash commands and runs them', async () => {
   )
   expect(commands.map((command: { name: string }) => command.name)).toContain('review-pr')
 
-  await page.getByText('Nexus', { exact: true }).first().click()
   const input = page.locator('textarea').first()
   await input.click()
 

@@ -78,9 +78,11 @@ export async function tickSchedules(): Promise<void> {
     try {
       await runSchedule(schedule)
     } catch (error) {
-      useAppStore
-        .getState()
-        .toast({ level: 'error', title: `Lịch lỗi: ${schedule.title}`, body: (error as Error).message })
+      useAppStore.getState().toast({
+        level: 'error',
+        title: `Lịch lỗi: ${schedule.title}`,
+        body: (error as Error).message,
+      })
     }
   }
 }

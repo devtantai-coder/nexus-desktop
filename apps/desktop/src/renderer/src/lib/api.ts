@@ -1,4 +1,5 @@
 import type {
+  AgentEngine,
   AgentMode,
   AppInfo,
   Attachment,
@@ -138,6 +139,7 @@ export const api = {
       modelId?: string | null
       modelVariant?: string | null
       permissionMode?: PermissionMode
+      engine?: AgentEngine
     }) => call('session.create', input ?? {}),
     get: (id: string) => call('session.get', { id }),
     update: (
@@ -149,6 +151,7 @@ export const api = {
         modelId?: string | null
         modelVariant?: string | null
         permissionMode?: PermissionMode
+        engine?: AgentEngine
         archived?: boolean
         pinned?: boolean
       },
@@ -169,6 +172,7 @@ export const api = {
       providerId?: string
       modelId?: string
       projectId?: string
+      engine?: AgentEngine
       attachments?: Attachment[]
     }) => call('agent.start', input),
     cancel: (taskId: string) => call('agent.cancel', { taskId }),
@@ -215,8 +219,7 @@ export const api = {
     create: (input: { projectId?: string; cwd?: string; cols?: number; rows?: number }) =>
       call('terminal.create', input),
     write: (id: string, data: string) => call('terminal.write', { id, data }),
-    resize: (id: string, cols: number, rows: number) =>
-      call('terminal.resize', { id, cols, rows }),
+    resize: (id: string, cols: number, rows: number) => call('terminal.resize', { id, cols, rows }),
     dispose: (id: string) => call('terminal.dispose', { id }),
     list: () => call('terminal.list'),
   },

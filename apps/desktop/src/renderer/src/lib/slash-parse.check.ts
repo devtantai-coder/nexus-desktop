@@ -1,7 +1,7 @@
 // Self-check for the pure slash-command helpers.
 // Run: node --experimental-strip-types apps/desktop/src/renderer/src/lib/slash-parse.check.ts
 import assert from 'node:assert/strict'
-import { BUILTIN_COMMANDS, expandTemplate, listCommands, parseSlash } from './slash-parse.ts'
+import { BUILTIN_COMMANDS, expandTemplate, listCommands, parseArgs, parseSlash } from './slash-parse.ts'
 
 assert.deepEqual(parseSlash('/new'), { name: 'new', input: '' })
 assert.deepEqual(parseSlash('/model  gpt-5 '), { name: 'model', input: 'gpt-5' })
@@ -9,6 +9,12 @@ assert.deepEqual(parseSlash('/New'), { name: 'new', input: '' })
 assert.equal(parseSlash('hello'), null)
 assert.equal(parseSlash(''), null)
 assert.equal(parseSlash('/')?.name, '')
+
+assert.deepEqual(parseArgs('src/app.ts src/lib.ts'), ['src/app.ts', 'src/lib.ts'])
+assert.deepEqual(parseArgs('"src/my file.ts" src/other.ts'), ['src/my file.ts', 'src/other.ts'])
+assert.deepEqual(parseArgs("'a b' c"), ['a b', 'c'])
+assert.deepEqual(parseArgs('  spaced   out  '), ['spaced', 'out'])
+assert.deepEqual(parseArgs(''), [])
 
 assert.equal(listCommands([], '').length, BUILTIN_COMMANDS.length)
 assert.deepEqual(

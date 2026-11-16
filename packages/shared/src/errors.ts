@@ -10,6 +10,7 @@ export const ERROR_CODES = [
   'E_PERMISSION',
   'E_FS',
   'E_TERMINAL',
+  'E_LSP',
   'E_GIT',
   'E_DB',
   'E_CANCELLED',

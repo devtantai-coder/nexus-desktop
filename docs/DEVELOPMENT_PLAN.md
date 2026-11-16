@@ -17,18 +17,18 @@ Latest run: **TypeScript core tests pass · typecheck clean · 3/3 Electron E2E 
 
 ## Phase status
 
-| Phase                   | Scope                                                                                              | Status              |
-| ----------------------- | -------------------------------------------------------------------------------------------------- | ------------------- |
-| 0 Research              | Electron security model, provider protocols, agent tool loop, PTY                                  | done                |
-| 1 Architecture          | ARCHITECTURE, TECHNICAL_DECISIONS, SECURITY_PLAN, UI_DESIGN_SPEC, DATABASE_SCHEMA                  | done                |
-| 2 Foundation            | monorepo, electron-vite, TypeScript UI, TypeScript core, SQLite migrations, IPC, design tokens, build   | done                |
-| 3 UI                    | shell, sidebar, home, conversation, composer, coding workspace + inspector, settings, themes, i18n | done                |
-| 4 Provider engine       | 6 provider kinds, streaming, tool calls, discovery, capability detection, encrypted keys           | done                |
-| 5 Agent runtime         | FSM, planning, tool loop, approvals, retries, cancel, resume, usage, persistence                   | done                |
-| 6 Workspace & dev tools | FS engine, indexer, Monaco, diff review, xterm terminal, git                                       | done                |
-| 7 Multi-agent & context | orchestrator roles, file locks, conflicts, context budget/compression                              | done                |
-| 8 Security & testing    | permission matrix, path sandbox, command screening, redaction, CSP, tests                          | done                |
-| 9 Release               | icons, builder configs, packaged app boot verified; installers                                     | partial — see below |
+| Phase                   | Scope                                                                                                 | Status              |
+| ----------------------- | ----------------------------------------------------------------------------------------------------- | ------------------- |
+| 0 Research              | Electron security model, provider protocols, agent tool loop, PTY                                     | done                |
+| 1 Architecture          | ARCHITECTURE, TECHNICAL_DECISIONS, SECURITY_PLAN, UI_DESIGN_SPEC, DATABASE_SCHEMA                     | done                |
+| 2 Foundation            | monorepo, electron-vite, TypeScript UI, TypeScript core, SQLite migrations, IPC, design tokens, build | done                |
+| 3 UI                    | shell, sidebar, home, conversation, composer, coding workspace + inspector, settings, themes, i18n    | done                |
+| 4 Provider engine       | 6 provider kinds, streaming, tool calls, discovery, capability detection, encrypted keys              | done                |
+| 5 Agent runtime         | FSM, planning, tool loop, approvals, retries, cancel, resume, usage, persistence                      | done                |
+| 6 Workspace & dev tools | FS engine, indexer, Monaco, diff review, xterm terminal, git                                          | done                |
+| 7 Multi-agent & context | orchestrator roles, file locks, conflicts, context budget/compression                                 | done                |
+| 8 Security & testing    | permission matrix, path sandbox, command screening, redaction, CSP, tests                             | done                |
+| 9 Release               | icons, builder configs, packaged app boot verified; installers                                        | partial — see below |
 
 ## What is verified, and how
 

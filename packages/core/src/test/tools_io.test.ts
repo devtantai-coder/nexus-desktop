@@ -7,6 +7,7 @@ import { Store } from '../store.ts'
 import { Workspace } from '../workspace.ts'
 import { ToolRegistry } from '../tools.ts'
 import type { ToolContext } from '../tools.ts'
+import { selectedAgentEngine } from '../agent.ts'
 import { writeFileAtomic, ensureDirectory } from '../util.ts'
 
 let tempDir = ''
@@ -59,6 +60,45 @@ describe('deep tools', () => {
       symbols: unknown[]
     }
     assert.ok(result.symbols.length >= 1)
+  })
+
+  it('find_references dùng AST', async () => {
+    const registry = ToolRegistry.standard()
+    const result = (await registry.execute(
+      'find_references',
+      { symbol: 'UserService' },
+      context(),
+    )) as { references: Array<{ kind: string; line: number }> }
+    assert.ok(result.references.some((hit) => hit.kind === 'declaration'))
+    assert.ok(result.references.some((hit) => hit.kind === 'constructor'))
+  })
+
+  it('chọn agent engine từ settings + session', () => {
+    assert.equal(selectedAgentEngine(store), 'native')
+    store.settingSet('agent.engine', 'langgraph')
+    assert.equal(selectedAgentEngine(store), 'langgraph')
+    assert.equal(selectedAgentEngine(store, 'claude-agent-sdk'), 'claude-agent-sdk')
+    store.settingSet('agent.engine', 'bogus')
+    assert.equal(selectedAgentEngine(store), 'native')
+    store.settingSet('agent.engine', 'native')
+
+    const project = store.projectOpen(tempDir, 'engine-session')
+    const session = store.sessionCreate({
+      projectId: project['id'],
+      title: 'Engine session',
+      engine: 'langgraph',
+    })
+    assert.equal(session['engine'], 'langgraph')
+    assert.equal(store.sessionGet(session['id'])?.['engine'], 'langgraph')
+    store.sessionUpdate(session['id'], { engine: 'claude-agent-sdk' })
+    assert.equal(store.sessionGet(session['id'])?.['engine'], 'claude-agent-sdk')
+
+    store.providerSave({ kind: 'anthropic', name: 'Anthropic', enabled: true })
+    store.settingSet('agent.engine', 'auto')
+    assert.equal(selectedAgentEngine(store), 'claude-agent-sdk')
+    store.settingSet('agent.engine', 'native')
+    assert.equal(selectedAgentEngine(store), 'native')
+    store.settingSet('agent.engine', 'auto')
   })
 
   it('read_multiple_files đọc 2 files', async () => {

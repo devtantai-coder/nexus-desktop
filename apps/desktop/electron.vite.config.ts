@@ -10,22 +10,26 @@ const alias: Record<string, string> = {
   '@nexus/shared/constants': resolve(packages, 'shared/src/constants.ts'),
   '@nexus/shared': resolve(packages, 'shared/src/index.ts'),
   '@nexus/core': resolve(packages, 'core/src/index.ts'),
+  '@nexus/cordis': resolve(packages, 'cordis/src/index.ts'),
 }
 
 export default defineConfig({
   main: {
     resolve: { alias },
+    ssr: { noExternal: true },
     build: {
       outDir: resolve(root, 'dist/main'),
       emptyOutDir: true,
       rollupOptions: {
         input: { index: resolve(root, 'src/main/index.ts') },
+        external: ['@anthropic-ai/claude-agent-sdk'],
         output: { format: 'cjs', entryFileNames: '[name].js' },
       },
     },
   },
   preload: {
     resolve: { alias },
+    ssr: { noExternal: true },
     build: {
       outDir: resolve(root, 'dist/preload'),
       emptyOutDir: true,

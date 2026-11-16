@@ -25,7 +25,10 @@ export function redactSecrets(value: string): string {
 }
 
 const DANGEROUS_COMMANDS: Array<[RegExp, string]> = [
-  [/\brm\s+(-[a-zA-Z]*\s+)*-[a-zA-Z]*[rf][a-zA-Z]*\s+(\/|~|\$HOME)(\s|$)/, 'recursive delete of a root or home directory'],
+  [
+    /\brm\s+(-[a-zA-Z]*\s+)*-[a-zA-Z]*[rf][a-zA-Z]*\s+(\/|~|\$HOME)(\s|$)/,
+    'recursive delete of a root or home directory',
+  ],
   [/\brm\s+-rf\s+(\*|\.\s*$)/, 'recursive delete of the current directory'],
   [/\bmkfs(\.\w+)?\b/, 'filesystem format'],
   [/\bdd\b[^\n]*\bof=\/dev\//, 'raw device write'],

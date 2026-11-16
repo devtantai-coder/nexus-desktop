@@ -42,7 +42,11 @@ test('store: provider + models incl. variants', () => {
     assert.equal(jsonStr(provider, 'name'), 'OpenAI')
     const providerId = jsonStr(provider, 'id')
 
-    const model = store.modelSave({ providerId, modelId: 'gpt-4o-mini', displayName: 'GPT-4o mini' })
+    const model = store.modelSave({
+      providerId,
+      modelId: 'gpt-4o-mini',
+      displayName: 'GPT-4o mini',
+    })
     assert.equal(model['isDefault'], true, 'first model is default')
 
     const variant = store.modelSave({
@@ -65,7 +69,12 @@ test('store: provider + models incl. variants', () => {
     const base = store.modelFindByWire(providerId, 'gpt-4o-mini')
     assert.equal(jsonStr(base, 'reasoningEffort'), 'medium')
 
-    const minimal = store.modelSave({ providerId, modelId: 'gpt-5-mini', supportsReasoning: true, reasoningEffort: 'minimal' })
+    const minimal = store.modelSave({
+      providerId,
+      modelId: 'gpt-5-mini',
+      supportsReasoning: true,
+      reasoningEffort: 'minimal',
+    })
     assert.equal(jsonStr(minimal, 'reasoningEffort'), 'minimal')
 
     const bogus = store.modelSave({ providerId, modelId: 'gpt-5-nano', reasoningEffort: 'extreme' })
@@ -89,7 +98,12 @@ test('store: sessions + messages + tools + file changes', () => {
     const providerId = jsonStr(provider, 'id')
     const project = store.projectOpen(dir, basenameSafe(dir), undefined, undefined)
     const projectId = jsonStr(project, 'id')
-    const session = store.sessionCreate({ projectId, title: 'Test session', providerId, modelId: 'gpt-4o-mini' })
+    const session = store.sessionCreate({
+      projectId,
+      title: 'Test session',
+      providerId,
+      modelId: 'gpt-4o-mini',
+    })
     const sessionId = jsonStr(session, 'id')
 
     const duplicated = store.sessionDuplicate(sessionId)
@@ -120,7 +134,12 @@ test('store: sessions + messages + tools + file changes', () => {
     const memory = store.memoryCreate({ projectId, kind: 'fact', content: 'remember-me' })
     assert.equal(jsonStr(memory, 'content'), 'remember-me')
 
-    const task = store.taskCreate({ sessionId, prompt: 'Fix the bug', mode: 'agent', permissionMode: 'workspace-write' })
+    const task = store.taskCreate({
+      sessionId,
+      prompt: 'Fix the bug',
+      mode: 'agent',
+      permissionMode: 'workspace-write',
+    })
     assert.equal(jsonStr(task, 'title'), 'Fix the bug')
 
     const message = store.messageCreate({ sessionId, role: 'user', content: 'hello' })
@@ -133,7 +152,10 @@ test('store: sessions + messages + tools + file changes', () => {
       input: { path: 'a.txt' },
       status: 'running',
     })
-    const updated = store.toolCallUpdate(jsonStr(call, 'id'), { status: 'success', output: { ok: true } })
+    const updated = store.toolCallUpdate(jsonStr(call, 'id'), {
+      status: 'success',
+      output: { ok: true },
+    })
     assert.equal(jsonStr(updated, 'status'), 'success')
 
     const change = store.fileChangeRecord({

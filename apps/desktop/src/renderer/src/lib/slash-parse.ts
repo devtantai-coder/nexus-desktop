@@ -1,4 +1,5 @@
 import type { AgentMode, CustomCommand } from '@nexus/shared'
+import { parseArgsStringToArgv } from 'string-argv'
 
 // Slash command set mirrors opencode: built-ins run app actions, anything else falls back
 // to a template in .nexus/commands (or .claude/commands) and finally to a plain prompt.
@@ -140,10 +141,20 @@ export const BUILTIN_COMMANDS: SlashCommand[] = [
   { name: 'connect', description: 'Mở cài đặt provider và model', category: 'Provider' },
   { name: 'mcp', description: 'Quản lý server MCP (connector)', category: 'Provider' },
   { name: 'reload', description: 'Nạp lại lệnh, model, provider', category: 'View' },
-  { name: 'approvals', description: 'Xem/đổi quyền phê duyệt (alias Codex)', category: 'Cấu hình', args: true },
+  {
+    name: 'approvals',
+    description: 'Xem/đổi quyền phê duyệt (alias Codex)',
+    category: 'Cấu hình',
+    args: true,
+  },
   { name: 'agents', description: 'Liệt kê agent mode khả dụng', category: 'Cấu hình' },
   { name: 'commands', description: 'Liệt kê lệnh riêng trong dự án', category: 'View' },
-  { name: 'effort', description: 'Xem/đổi reasoning effort: /effort <mức>', category: 'Model', args: true },
+  {
+    name: 'effort',
+    description: 'Xem/đổi reasoning effort: /effort <mức>',
+    category: 'Model',
+    args: true,
+  },
   { name: 'theme', description: 'Đổi giao diện sáng/tối', category: 'View' },
   { name: 'quit', description: 'Đóng ứng dụng', category: 'View' },
 ]
@@ -153,6 +164,11 @@ export function parseSlash(text: string): { name: string; input: string } | null
   const separator = text.search(/\s/)
   const name = text.slice(1, separator === -1 ? undefined : separator).toLowerCase()
   return { name, input: separator === -1 ? '' : text.slice(separator).trim() }
+}
+
+// Tách tham số theo quy ước shell: "..." và '...' giữ nguyên khoảng trắng bên trong.
+export function parseArgs(input: string): string[] {
+  return parseArgsStringToArgv(input)
 }
 
 function fromCustom(custom: CustomCommand): SlashCommand {

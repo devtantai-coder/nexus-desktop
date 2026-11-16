@@ -19,7 +19,8 @@ export class SecretStore {
   }
 
   encrypt(plaintext: string): string {
-    if (!this.ensureKey() || !this.key) throw new NexusError('E_CONFIG', 'Secret store is unavailable')
+    if (!this.ensureKey() || !this.key)
+      throw new NexusError('E_CONFIG', 'Secret store is unavailable')
     const iv = randomBytes(12)
     const cipher = createCipheriv('aes-256-gcm', this.key, iv)
     const ciphertext = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()])
@@ -28,7 +29,8 @@ export class SecretStore {
   }
 
   decrypt(ciphertext: string): string {
-    if (!this.ensureKey() || !this.key) throw new NexusError('E_CONFIG', 'Secret store is unavailable')
+    if (!this.ensureKey() || !this.key)
+      throw new NexusError('E_CONFIG', 'Secret store is unavailable')
     const payload = Buffer.from(base64Decode(ciphertext), 'binary')
     if (payload.length < 28) throw new NexusError('E_AUTH', 'Invalid encrypted secret')
     const iv = payload.subarray(0, 12)

@@ -23,6 +23,11 @@ export class EventBus {
     }
   }
 
+  clear(): void {
+    this.listeners.clear()
+    this.sink = null
+  }
+
   emit(type: string, payload: JsonValue = {}): void {
     if (!this.sink && this.listeners.size === 0) return
     const event: NexusEvent = { type, payload }
@@ -30,7 +35,9 @@ export class EventBus {
       try {
         listener(event)
       } catch (error) {
-        process.stderr.write(`nexus-core: event listener failed: ${error instanceof Error ? error.message : String(error)}\n`)
+        process.stderr.write(
+          `nexus-core: event listener failed: ${error instanceof Error ? error.message : String(error)}\n`,
+        )
       }
     }
     if (this.sink) {

@@ -1,4 +1,5 @@
 import type {
+  AgentEngine,
   AgentMode,
   AgentRoleConfig,
   AppInfo,
@@ -52,6 +53,8 @@ export interface ProviderTestResult {
 
 export interface DiscoveredModel {
   id: string
+  baseModelId: string
+  variant: string
   displayName?: string
   supportsReasoning: boolean
   supportedReasoningEfforts: ModelReasoningEffort[]
@@ -74,6 +77,7 @@ export interface SessionPatch {
   modelId?: string | null
   modelVariant?: string | null
   permissionMode?: PermissionMode
+  engine?: AgentEngine
   archived?: boolean
   pinned?: boolean
 }
@@ -242,6 +246,7 @@ export interface IpcContract {
       modelId?: string | null
       modelVariant?: string | null
       permissionMode?: PermissionMode
+      engine?: AgentEngine
     }
     output: Session
   }
@@ -265,6 +270,7 @@ export interface IpcContract {
       providerId?: string
       modelId?: string
       projectId?: string
+      engine?: AgentEngine
       attachments?: Attachment[]
     }
     output: { taskId: string; messageId?: string; queued?: boolean }

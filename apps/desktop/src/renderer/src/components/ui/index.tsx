@@ -1,8 +1,11 @@
+import { cva, type VariantProps } from 'class-variance-authority'
+import { clsx, type ClassValue } from 'clsx'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import * as SelectPrimitive from '@radix-ui/react-select'
 import * as SwitchPrimitive from '@radix-ui/react-switch'
 import * as TooltipPrimitive from '@radix-ui/react-tooltip'
 import { Check, ChevronDown, Loader2, X } from 'lucide-react'
+import { twMerge } from 'tailwind-merge'
 import React, {
   createContext,
   useContext,
@@ -12,8 +15,8 @@ import React, {
 } from 'react'
 import { useAppStore } from '../../kernel'
 
-export function cn(...values: Array<string | false | null | undefined>): string {
-  return values.filter(Boolean).join(' ')
+export function cn(...values: ClassValue[]): string {
+  return twMerge(clsx(values))
 }
 
 /** Hàng trong menu/popover: một chỗ duy nhất để đổi nhịp và bo góc. */
@@ -23,27 +26,42 @@ export const menuRow =
 export const popoverShell =
   'rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-elevated)] p-1.5 shadow-[var(--shadow-overlay)]'
 
-type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'subtle'
+export const buttonVariants = cva(
+  'inline-flex items-center justify-center rounded-[var(--radius)] font-medium transition-[background-color,color,opacity,box-shadow,filter] duration-150 select-none whitespace-nowrap disabled:opacity-45 disabled:pointer-events-none',
+  {
+    variants: {
+      variant: {
+        primary:
+          'btn-solid text-[var(--accent-contrast)] border border-transparent hover:brightness-[1.06] active:brightness-100',
+        secondary:
+          'bg-[var(--bg-elevated)] text-[var(--text)] border border-[var(--border-strong)] shadow-[var(--inset-highlight)] hover:bg-[var(--bg-hover)] active:bg-[var(--bg-active)]',
+        ghost:
+          'bg-transparent text-[var(--text-muted)] border border-transparent hover:bg-[var(--bg-hover)] hover:text-[var(--text)] active:bg-[var(--bg-active)]',
+        subtle:
+          'bg-[var(--bg-surface)] text-[var(--text)] border border-[var(--border)] hover:bg-[var(--bg-hover)] active:bg-[var(--bg-active)]',
+        danger:
+          'bg-[var(--danger-soft)] text-[var(--danger)] border border-[var(--danger)]/35 hover:bg-[var(--danger)]/15',
+      },
+      size: {
+        xs: 'h-[26px] px-2 text-[12.5px] gap-1 rounded-[var(--radius-sm)]',
+        sm: 'h-8 px-3 text-[13px] gap-1.5 rounded-[var(--radius)]',
+        md: 'h-9 px-3.5 text-[13.5px] gap-2 rounded-[var(--radius)]',
+      },
+      block: {
+        true: 'w-full',
+        false: '',
+      },
+    },
+    defaultVariants: { variant: 'secondary', size: 'sm', block: false },
+  },
+)
 
-const buttonStyles: Record<ButtonVariant, string> = {
-  primary:
-    'btn-solid text-[var(--accent-contrast)] border border-transparent hover:brightness-[1.06] active:brightness-100',
-  secondary:
-    'bg-[var(--bg-elevated)] text-[var(--text)] border border-[var(--border-strong)] shadow-[var(--inset-highlight)] hover:bg-[var(--bg-hover)] active:bg-[var(--bg-active)]',
-  ghost:
-    'bg-transparent text-[var(--text-muted)] border border-transparent hover:bg-[var(--bg-hover)] hover:text-[var(--text)] active:bg-[var(--bg-active)]',
-  subtle:
-    'bg-[var(--bg-surface)] text-[var(--text)] border border-[var(--border)] hover:bg-[var(--bg-hover)] active:bg-[var(--bg-active)]',
-  danger:
-    'bg-[var(--danger-soft)] text-[var(--danger)] border border-[var(--danger)]/35 hover:bg-[var(--danger)]/15',
-}
+export type ButtonVariant = NonNullable<VariantProps<typeof buttonVariants>['variant']>
 
-export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: ButtonVariant
-  size?: 'xs' | 'sm' | 'md'
+export interface ButtonProps
+  extends ButtonHTMLAttributes<HTMLButtonElement>, VariantProps<typeof buttonVariants> {
   loading?: boolean
   icon?: ReactNode
-  block?: boolean
 }
 
 export function Button({
@@ -57,22 +75,10 @@ export function Button({
   disabled,
   ...rest
 }: ButtonProps): React.JSX.Element {
-  const sizes = {
-    xs: 'h-[26px] px-2 text-[12.5px] gap-1 rounded-[var(--radius-sm)]',
-    sm: 'h-8 px-3 text-[13px] gap-1.5 rounded-[var(--radius)]',
-    md: 'h-9 px-3.5 text-[13.5px] gap-2 rounded-[var(--radius)]',
-  }
   return (
     <button
       type="button"
-      className={cn(
-        'inline-flex items-center justify-center rounded-[var(--radius)] font-medium transition-[background-color,color,opacity,box-shadow,filter] duration-150 select-none whitespace-nowrap',
-        'disabled:opacity-45 disabled:pointer-events-none',
-        sizes[size],
-        buttonStyles[variant],
-        block && 'w-full',
-        className,
-      )}
+      className={cn(buttonVariants({ variant, size, block }), className)}
       disabled={disabled || loading}
       {...rest}
     >
@@ -81,6 +87,19 @@ export function Button({
     </button>
   )
 }
+
+export const iconButtonVariants = cva(
+  'inline-flex h-7 w-7 items-center justify-center rounded-[var(--radius-sm)] text-[var(--text-muted)] transition-[background-color,color] duration-150 hover:bg-[var(--bg-hover)] hover:text-[var(--text)] active:bg-[var(--bg-active)] disabled:opacity-40',
+  {
+    variants: {
+      active: {
+        true: 'bg-[var(--bg-active)] text-[var(--text)]',
+        false: '',
+      },
+    },
+    defaultVariants: { active: false },
+  },
+)
 
 export function IconButton({
   label,
@@ -98,12 +117,7 @@ export function IconButton({
       <button
         type="button"
         aria-label={label}
-        className={cn(
-          'inline-flex h-7 w-7 items-center justify-center rounded-[var(--radius-sm)] text-[var(--text-muted)]',
-          'transition-[background-color,color] duration-150 hover:bg-[var(--bg-hover)] hover:text-[var(--text)] active:bg-[var(--bg-active)] disabled:opacity-40',
-          active && 'bg-[var(--bg-active)] text-[var(--text)]',
-          className,
-        )}
+        className={cn(iconButtonVariants({ active }), className)}
         {...rest}
       >
         <span
@@ -157,6 +171,36 @@ export function Field({
   )
 }
 
+export const switchVariants = cva(
+  'relative inline-flex h-[20px] w-[34px] shrink-0 items-center rounded-full border border-[var(--border-strong)] transition-colors',
+  {
+    variants: {
+      checked: {
+        true: 'bg-[var(--accent)]',
+        false: 'bg-[var(--bg-surface)]',
+      },
+      disabled: {
+        true: 'opacity-50',
+        false: '',
+      },
+    },
+    defaultVariants: { checked: false, disabled: false },
+  },
+)
+
+export const switchThumbVariants = cva(
+  'block h-[14px] w-[14px] rounded-full bg-[var(--bg)] shadow transition-transform',
+  {
+    variants: {
+      checked: {
+        true: 'translate-x-[17px] bg-[var(--accent-contrast)]',
+        false: 'translate-x-[2px]',
+      },
+    },
+    defaultVariants: { checked: false },
+  },
+)
+
 export function Switch({
   checked,
   onCheckedChange,
@@ -174,21 +218,25 @@ export function Switch({
       checked={checked}
       onCheckedChange={onCheckedChange}
       disabled={disabled}
-      className={cn(
-        'relative inline-flex h-[20px] w-[34px] shrink-0 items-center rounded-full border border-[var(--border-strong)] transition-colors',
-        checked ? 'bg-[var(--accent)]' : 'bg-[var(--bg-surface)]',
-        disabled && 'opacity-50',
-      )}
+      className={switchVariants({ checked, disabled: Boolean(disabled) })}
     >
-      <SwitchPrimitive.Thumb
-        className={cn(
-          'block h-[14px] w-[14px] rounded-full bg-[var(--bg)] shadow transition-transform',
-          checked ? 'translate-x-[17px] bg-[var(--accent-contrast)]' : 'translate-x-[2px]',
-        )}
-      />
+      <SwitchPrimitive.Thumb className={switchThumbVariants({ checked })} />
     </SwitchPrimitive.Root>
   )
 }
+
+export const selectTriggerVariants = cva(
+  'inline-flex items-center justify-between gap-1.5 whitespace-nowrap rounded-full border border-transparent text-[var(--text-faint)] hover:bg-[var(--bg-hover)] hover:border-[var(--border)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)] disabled:opacity-50',
+  {
+    variants: {
+      size: {
+        xs: 'h-7 px-2 text-[13px]',
+        sm: 'h-7 px-2.5 text-[13px]',
+      },
+    },
+    defaultVariants: { size: 'sm' },
+  },
+)
 
 export interface SelectOption {
   value: string
@@ -220,12 +268,7 @@ export function Select({
     <SelectPrimitive.Root value={value} onValueChange={onValueChange} disabled={disabled}>
       <SelectPrimitive.Trigger
         aria-label={ariaLabel}
-        className={cn(
-          'inline-flex items-center justify-between gap-1.5 whitespace-nowrap rounded-full border border-transparent text-[var(--text-faint)]',
-          'hover:bg-[var(--bg-hover)] hover:border-[var(--border)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)] disabled:opacity-50',
-          size === 'xs' ? 'h-7 px-2 text-[13px]' : 'h-7 px-2.5 text-[13px]',
-          className,
-        )}
+        className={cn(selectTriggerVariants({ size }), className)}
       >
         <SelectPrimitive.Value placeholder={placeholder ?? '—'} />
         <SelectPrimitive.Icon>
@@ -366,29 +409,31 @@ export function Dialog({
   )
 }
 
+export const badgeVariants = cva(
+  'inline-flex shrink-0 items-center gap-1 rounded-[var(--radius-xs)] border px-1.5 py-[1px] text-[11px] font-medium tracking-[0.01em]',
+  {
+    variants: {
+      tone: {
+        neutral: 'text-[var(--text-muted)] bg-[var(--bg-surface)] border-[var(--border)]',
+        danger: 'text-[var(--danger)] bg-[var(--danger-soft)] border-[var(--danger)]/25',
+        warning: 'text-[var(--warning)] bg-[var(--warning-soft)] border-[var(--warning)]/25',
+        success: 'text-[var(--success)] bg-[var(--success-soft)] border-[var(--success)]/25',
+      },
+    },
+    defaultVariants: { tone: 'neutral' },
+  },
+)
+
+export type BadgeTone = NonNullable<VariantProps<typeof badgeVariants>['tone']>
+
 export function Badge({
   children,
   tone = 'neutral',
 }: {
   children: ReactNode
-  tone?: 'neutral' | 'danger' | 'warning' | 'success'
+  tone?: BadgeTone
 }): React.JSX.Element {
-  const tones: Record<string, string> = {
-    neutral: 'text-[var(--text-muted)] bg-[var(--bg-surface)] border-[var(--border)]',
-    danger: 'text-[var(--danger)] bg-[var(--danger-soft)] border-[var(--danger)]/25',
-    warning: 'text-[var(--warning)] bg-[var(--warning-soft)] border-[var(--warning)]/25',
-    success: 'text-[var(--success)] bg-[var(--success-soft)] border-[var(--success)]/25',
-  }
-  return (
-    <span
-      className={cn(
-        'inline-flex shrink-0 items-center gap-1 rounded-[var(--radius-xs)] border px-1.5 py-[1px] text-[11px] font-medium tracking-[0.01em]',
-        tones[tone],
-      )}
-    >
-      {children}
-    </span>
-  )
+  return <span className={badgeVariants({ tone })}>{children}</span>
 }
 
 export function Spinner({ size = 14 }: { size?: number }): React.JSX.Element {
@@ -417,21 +462,33 @@ export function EmptyState({
   )
 }
 
+export const toastTitleVariants = cva('text-[12.5px] font-medium', {
+  variants: {
+    tone: {
+      info: 'text-[var(--text)]',
+      success: 'text-[var(--success)]',
+      warning: 'text-[var(--warning)]',
+      error: 'text-[var(--danger)]',
+    },
+  },
+  defaultVariants: { tone: 'info' },
+})
+
+export const toastDotVariants = cva('mt-[6px] h-1.5 w-1.5 shrink-0 rounded-full', {
+  variants: {
+    tone: {
+      info: 'bg-[var(--text-faint)]',
+      success: 'bg-[var(--success)]',
+      warning: 'bg-[var(--warning)]',
+      error: 'bg-[var(--danger)]',
+    },
+  },
+  defaultVariants: { tone: 'info' },
+})
+
 export function Toasts(): React.JSX.Element {
   const toasts = useAppStore((state) => state.toasts)
   const dismissToast = useAppStore((state) => state.dismissToast)
-  const tones: Record<string, string> = {
-    info: 'text-[var(--text)]',
-    success: 'text-[var(--success)]',
-    warning: 'text-[var(--warning)]',
-    error: 'text-[var(--danger)]',
-  }
-  const dots: Record<string, string> = {
-    info: 'bg-[var(--text-faint)]',
-    success: 'bg-[var(--success)]',
-    warning: 'bg-[var(--warning)]',
-    error: 'bg-[var(--danger)]',
-  }
   return (
     <div className="pointer-events-none fixed bottom-4 right-4 z-50 flex w-[310px] flex-col gap-2">
       {toasts.map((toast) => (
@@ -439,12 +496,9 @@ export function Toasts(): React.JSX.Element {
           key={toast.id}
           className="animate-pop pointer-events-auto flex items-start gap-2.5 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-2.5 surface-pop"
         >
-          <span
-            className={cn('mt-[6px] h-1.5 w-1.5 shrink-0 rounded-full', dots[toast.level])}
-            aria-hidden
-          />
+          <span className={toastDotVariants({ tone: toast.level })} aria-hidden />
           <div className="min-w-0 flex-1">
-            <div className={cn('text-[12.5px] font-medium', tones[toast.level])}>{toast.title}</div>
+            <div className={toastTitleVariants({ tone: toast.level })}>{toast.title}</div>
             {toast.body ? (
               <div className="mt-0.5 break-words text-[12px] leading-relaxed text-[var(--text-muted)]">
                 {toast.body}

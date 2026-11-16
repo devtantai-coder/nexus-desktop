@@ -226,7 +226,7 @@ export function createAppStore(): UseBoundStore<StoreApi<AppState>> {
     activeTaskId: null,
     sidebarCollapsed: false,
     openTabs: [],
-  sidebarWidth: 340,
+    sidebarWidth: 340,
     paletteOpen: false,
     draftRequest: null,
     composerFocusAt: 0,

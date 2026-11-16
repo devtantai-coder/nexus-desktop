@@ -1,6 +1,16 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { spawn } from 'node:child_process'
-import { closeSync, existsSync, mkdirSync, openSync, readSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { dirname as pathDirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -79,7 +89,8 @@ export function sanitizeUtf8(value: string | Buffer): string {
     }
     if (valid) {
       if (length === 2 && codepoint < 0x80) valid = false
-      else if (length === 3 && (codepoint < 0x800 || (codepoint >= 0xd800 && codepoint <= 0xdfff))) valid = false
+      else if (length === 3 && (codepoint < 0x800 || (codepoint >= 0xd800 && codepoint <= 0xdfff)))
+        valid = false
       else if (length === 4 && (codepoint < 0x10000 || codepoint > 0x10ffff)) valid = false
     }
     if (valid) {
@@ -253,16 +264,19 @@ export function fileMtimeMs(path: string): number {
 }
 
 /* -------------------------------------------------------------------- mã hoá & băm */
-export const sha256Hex = (data: string): string => createHash('sha256').update(data, 'utf8').digest('hex')
+export const sha256Hex = (data: string): string =>
+  createHash('sha256').update(data, 'utf8').digest('hex')
 
-export const hexEncode = (data: string | Buffer): string => Buffer.from(data as string, 'binary').toString('hex')
+export const hexEncode = (data: string | Buffer): string =>
+  Buffer.from(data as string, 'binary').toString('hex')
 
 export function hexDecode(data: string): string {
   if (data.length % 2 !== 0) return ''
   return Buffer.from(data, 'hex').toString('binary')
 }
 
-export const base64Encode = (data: string | Buffer): string => Buffer.from(data as string, 'binary').toString('base64')
+export const base64Encode = (data: string | Buffer): string =>
+  Buffer.from(data as string, 'binary').toString('base64')
 
 export const base64Decode = (data: string): string => Buffer.from(data, 'base64').toString('binary')
 
@@ -290,15 +304,50 @@ export const jsonEscape = (value: string): string => JSON.stringify(value)
 
 /* ---------------------------------------------------------------------- ngôn ngữ */
 const LANGUAGE_BY_EXTENSION: Record<string, string> = {
-  '.ts': 'typescript', '.tsx': 'typescript', '.js': 'javascript', '.jsx': 'javascript',
-  '.mjs': 'javascript', '.cjs': 'javascript', '.json': 'json', '.md': 'markdown',
-  '.css': 'css', '.scss': 'scss', '.html': 'html', '.xml': 'xml', '.yml': 'yaml',
-  '.yaml': 'yaml', '.toml': 'toml', '.py': 'python', '.rs': 'rust', '.go': 'go',
-  '.java': 'java', '.kt': 'kotlin', '.swift': 'swift', '.c': 'c', '.h': 'c',
-  '.cpp': 'cpp', '.cc': 'cpp', '.cxx': 'cpp', '.hpp': 'cpp', '.hh': 'cpp', '.hxx': 'cpp',
-  '.cs': 'csharp', '.rb': 'ruby', '.php': 'php', '.sh': 'shell', '.bash': 'shell',
-  '.zsh': 'shell', '.sql': 'sql', '.lua': 'lua', '.dart': 'dart', '.vue': 'vue',
-  '.svelte': 'svelte', '.ini': 'ini', '.env': 'dotenv', '.txt': 'text', '.svg': 'xml',
+  '.ts': 'typescript',
+  '.tsx': 'typescript',
+  '.js': 'javascript',
+  '.jsx': 'javascript',
+  '.mjs': 'javascript',
+  '.cjs': 'javascript',
+  '.json': 'json',
+  '.md': 'markdown',
+  '.css': 'css',
+  '.scss': 'scss',
+  '.html': 'html',
+  '.xml': 'xml',
+  '.yml': 'yaml',
+  '.yaml': 'yaml',
+  '.toml': 'toml',
+  '.py': 'python',
+  '.rs': 'rust',
+  '.go': 'go',
+  '.java': 'java',
+  '.kt': 'kotlin',
+  '.swift': 'swift',
+  '.c': 'c',
+  '.h': 'c',
+  '.cpp': 'cpp',
+  '.cc': 'cpp',
+  '.cxx': 'cpp',
+  '.hpp': 'cpp',
+  '.hh': 'cpp',
+  '.hxx': 'cpp',
+  '.cs': 'csharp',
+  '.rb': 'ruby',
+  '.php': 'php',
+  '.sh': 'shell',
+  '.bash': 'shell',
+  '.zsh': 'shell',
+  '.sql': 'sql',
+  '.lua': 'lua',
+  '.dart': 'dart',
+  '.vue': 'vue',
+  '.svelte': 'svelte',
+  '.ini': 'ini',
+  '.env': 'dotenv',
+  '.txt': 'text',
+  '.svg': 'xml',
   '.graphql': 'graphql',
 }
 
@@ -308,14 +357,61 @@ function extensionOf(path: string): string {
   return dot === -1 ? '' : name.slice(dot).toLowerCase()
 }
 
-export const languageForPath = (path: string): string => LANGUAGE_BY_EXTENSION[extensionOf(path)] ?? 'text'
+export const languageForPath = (path: string): string =>
+  LANGUAGE_BY_EXTENSION[extensionOf(path)] ?? 'text'
 
 const TEXT_EXTENSIONS = new Set([
-  '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.json', '.md', '.css', '.scss', '.html',
-  '.xml', '.yml', '.yaml', '.toml', '.py', '.rs', '.go', '.java', '.kt', '.swift', '.c',
-  '.h', '.cpp', '.cc', '.cxx', '.hpp', '.hh', '.hxx', '.cs', '.rb', '.php', '.sh',
-  '.bash', '.zsh', '.sql', '.lua', '.dart', '.vue', '.svelte', '.ini', '.env', '.txt',
-  '.svg', '.graphql', '.lock', '.gitignore', '.dockerfile', '.make', '.cmake', '.conf',
+  '.ts',
+  '.tsx',
+  '.js',
+  '.jsx',
+  '.mjs',
+  '.cjs',
+  '.json',
+  '.md',
+  '.css',
+  '.scss',
+  '.html',
+  '.xml',
+  '.yml',
+  '.yaml',
+  '.toml',
+  '.py',
+  '.rs',
+  '.go',
+  '.java',
+  '.kt',
+  '.swift',
+  '.c',
+  '.h',
+  '.cpp',
+  '.cc',
+  '.cxx',
+  '.hpp',
+  '.hh',
+  '.hxx',
+  '.cs',
+  '.rb',
+  '.php',
+  '.sh',
+  '.bash',
+  '.zsh',
+  '.sql',
+  '.lua',
+  '.dart',
+  '.vue',
+  '.svelte',
+  '.ini',
+  '.env',
+  '.txt',
+  '.svg',
+  '.graphql',
+  '.lock',
+  '.gitignore',
+  '.dockerfile',
+  '.make',
+  '.cmake',
+  '.conf',
   '.properties',
 ])
 
@@ -331,9 +427,26 @@ export function isProbablyBinary(data: string | Buffer): boolean {
 }
 
 const IGNORED_NAMES = new Set([
-  '.git', 'node_modules', 'dist', 'out', 'build', 'target', '.next', '.nuxt', '.cache',
-  'coverage', '.venv', 'venv', '__pycache__', '.idea', '.vscode', '.DS_Store', '.turbo',
-  '.parcel-cache', 'release', '.inspect',
+  '.git',
+  'node_modules',
+  'dist',
+  'out',
+  'build',
+  'target',
+  '.next',
+  '.nuxt',
+  '.cache',
+  'coverage',
+  '.venv',
+  'venv',
+  '__pycache__',
+  '.idea',
+  '.vscode',
+  '.DS_Store',
+  '.turbo',
+  '.parcel-cache',
+  'release',
+  '.inspect',
 ])
 
 export const isIgnoredName = (name: string): boolean => IGNORED_NAMES.has(name)

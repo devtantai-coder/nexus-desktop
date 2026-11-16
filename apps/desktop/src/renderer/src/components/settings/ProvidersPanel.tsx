@@ -1,7 +1,8 @@
 import type React from 'react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Check, KeyRound, Loader2, Plus, RefreshCw, Star, Trash2 } from 'lucide-react'
+import { modelVariantLabel, splitModelVariant } from '@nexus/shared'
 import type { ProviderConfig, ProviderKind } from '@nexus/shared'
 import { api, queryClient, qk, useAppStore } from '../../kernel'
 import { Badge, Button, Dialog, Field, IconButton, Input, Select, Switch, cn } from '../ui'
@@ -20,6 +21,12 @@ const KINDS: Array<{
   local?: boolean
 }> = [
   { kind: 'openai', label: 'OpenAI', baseUrl: 'https://api.openai.com/v1', needsKey: true },
+  {
+    kind: 'vercel',
+    label: 'Vercel AI Gateway',
+    baseUrl: 'https://ai-gateway.vercel.app/v1',
+    needsKey: true,
+  },
   { kind: 'anthropic', label: 'Anthropic', baseUrl: 'https://api.anthropic.com', needsKey: true },
   {
     kind: 'google',
@@ -212,6 +219,7 @@ function ProviderRow({ provider }: { provider: ProviderConfig }): React.JSX.Elem
         await api.models.save({
           providerId: provider.id,
           modelId: model.id,
+          ...(model.variant ? { variant: model.variant } : {}),
           ...(model.displayName ? { displayName: model.displayName } : {}),
           ...(model.contextWindow ? { contextWindow: model.contextWindow } : {}),
           ...(model.maxOutputTokens ? { maxOutputTokens: model.maxOutputTokens } : {}),
@@ -380,6 +388,7 @@ function AddProvider(): React.JSX.Element {
   const [baseUrl, setBaseUrl] = useState('https://api.openai.com/v1')
   const [apiKey, setApiKey] = useState('')
   const [model, setModel] = useState('')
+  const [variant, setVariant] = useState('')
   const [saving, setSaving] = useState(false)
 
   const choosePreset = (entry: (typeof KINDS)[number]): void => {
@@ -397,6 +406,7 @@ function AddProvider(): React.JSX.Element {
     setBaseUrl('https://api.openai.com/v1')
     setApiKey('')
     setModel('')
+    setVariant('')
   }
 
   const save = async (): Promise<void> => {
@@ -411,9 +421,12 @@ function AddProvider(): React.JSX.Element {
         enabled: true,
       })
       if (model.trim()) {
+        const parsed = splitModelVariant(model)
+        const label = variant.trim() || parsed.variant
         await api.models.save({
           providerId: created.id,
           modelId: model.trim(),
+          ...(label ? { variant: label } : {}),
           displayName: model.trim(),
           supportsReasoning: false,
         })
@@ -486,6 +499,14 @@ function AddProvider(): React.JSX.Element {
                 className="font-mono text-[12.5px]"
               />
             </Field>
+            <Field label="Biến thể" hint="Nhãn phân biệt · vd. nitro">
+              <Input
+                value={variant}
+                onChange={(event) => setVariant(event.target.value)}
+                placeholder="vd. nitro"
+                className="font-mono text-[12.5px]"
+              />
+            </Field>
             <Field
               label="API URL"
               hint={kind === 'anthropic' ? 'POST /v1/messages' : 'POST /chat/completions'}
@@ -521,6 +542,120 @@ function AddProvider(): React.JSX.Element {
   )
 }
 
+function ModelDialog({
+  open,
+  onOpenChange,
+  providers,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  providers: ProviderConfig[]
+}): React.JSX.Element {
+  const toast = useAppStore((state) => state.toast)
+  const [providerId, setProviderId] = useState('')
+  const [modelId, setModelId] = useState('')
+  const [variant, setVariant] = useState('')
+  const [displayName, setDisplayName] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (!open) return
+    setProviderId(providers[0]?.id ?? '')
+    setModelId('')
+    setVariant('')
+    setDisplayName('')
+  }, [open, providers])
+
+  const save = async (): Promise<void> => {
+    if (!providerId || !modelId.trim()) return
+    setSaving(true)
+    try {
+      const parsed = splitModelVariant(modelId)
+      const label = variant.trim() || parsed.variant
+      await api.models.save({
+        providerId,
+        modelId: modelId.trim(),
+        ...(label ? { variant: label } : {}),
+        ...(displayName.trim() ? { displayName: displayName.trim() } : {}),
+        supportsReasoning: false,
+      })
+      await queryClient.invalidateQueries({ queryKey: qk.models })
+      toast({
+        level: 'success',
+        title: 'Đã thêm model',
+        body: label ? `${parsed.baseModelId} · ${label}` : parsed.baseModelId,
+      })
+      onOpenChange(false)
+    } catch (error) {
+      toast({ level: 'error', title: 'Không thêm được model', body: (error as Error).message })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Thêm model"
+      description="Nhập đúng ID gửi lên API (có thể kèm :variant). Ô Biến thể là nhãn để phân biệt."
+      width={480}
+      footer={
+        <>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+            Huỷ
+          </Button>
+          <Button
+            variant="primary"
+            loading={saving}
+            disabled={!providerId || !modelId.trim()}
+            onClick={() => void save()}
+          >
+            Thêm
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3">
+        <Field label="Nhà cung cấp">
+          <Select
+            ariaLabel="Chọn nhà cung cấp"
+            value={providerId}
+            placeholder="Chọn nhà cung cấp"
+            options={providers.map((provider) => ({ value: provider.id, label: provider.name }))}
+            onValueChange={setProviderId}
+          />
+        </Field>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Model" hint="ID gửi lên API · vd. openai/gpt-4o:nitro">
+            <Input
+              value={modelId}
+              onChange={(event) => setModelId(event.target.value)}
+              placeholder="vd. openai/gpt-4o"
+              className="font-mono text-[12.5px]"
+            />
+          </Field>
+          <Field label="Biến thể" hint="Nhãn phân biệt · tự suy ra từ :variant">
+            <Input
+              value={variant}
+              onChange={(event) => setVariant(event.target.value)}
+              placeholder="vd. nitro"
+              className="font-mono text-[12.5px]"
+            />
+          </Field>
+        </div>
+        <Field label="Tên hiển thị" hint="Tuỳ chọn">
+          <Input
+            value={displayName}
+            onChange={(event) => setDisplayName(event.target.value)}
+            placeholder="vd. GPT-4o Nitro"
+          />
+        </Field>
+      </div>
+    </Dialog>
+  )
+}
+
 export function ProvidersPanel(): React.JSX.Element {
   const toast = useAppStore((state) => state.toast)
   const { data: providers = [] } = useQuery({
@@ -529,6 +664,7 @@ export function ProvidersPanel(): React.JSX.Element {
   })
   const { data: models = [] } = useQuery({ queryKey: qk.models, queryFn: () => api.models.list() })
   const defaultModel = models.find((model) => model.isDefault)
+  const [modelOpen, setModelOpen] = useState(false)
 
   const modelGroups = useMemo(() => {
     const groups = new Map<
@@ -538,17 +674,19 @@ export function ProvidersPanel(): React.JSX.Element {
         displayName: string
         modelId: string
         providerId: string
-        variants: string[]
+        variants: Array<{ id: string; variant: string; isDefault: boolean }>
         contextWindow: number
         ids: string[]
         isDefault: boolean
       }
     >()
     for (const model of models) {
-      const key = `${model.providerId}::${model.modelId}`
+      const parsed = splitModelVariant(model.modelId)
+      const key = `${model.providerId}::${parsed.baseModelId}`
+      const variant = model.variant || parsed.variant || 'mặc định'
       const group = groups.get(key)
       if (group) {
-        group.variants.push(model.variant || 'mặc định')
+        group.variants.push({ id: model.id, variant, isDefault: model.isDefault })
         group.ids.push(model.id)
         group.isDefault ||= model.isDefault
         group.contextWindow = Math.max(group.contextWindow, model.contextWindow)
@@ -556,9 +694,9 @@ export function ProvidersPanel(): React.JSX.Element {
         groups.set(key, {
           key,
           displayName: model.displayName,
-          modelId: model.modelId,
+          modelId: parsed.baseModelId,
           providerId: model.providerId,
-          variants: [model.variant || 'mặc định'],
+          variants: [{ id: model.id, variant, isDefault: model.isDefault }],
           contextWindow: model.contextWindow,
           ids: [model.id],
           isDefault: model.isDefault,
@@ -567,8 +705,12 @@ export function ProvidersPanel(): React.JSX.Element {
     }
     return [...groups.values()].map((group) => ({
       ...group,
-      variants: [...new Set(group.variants)].sort((a, b) =>
-        a === 'mặc định' ? 1 : b === 'mặc định' ? -1 : a.localeCompare(b),
+      variants: group.variants.sort((a, b) =>
+        a.variant === 'mặc định'
+          ? 1
+          : b.variant === 'mặc định'
+            ? -1
+            : a.variant.localeCompare(b.variant),
       ),
     }))
   }, [models])
@@ -636,16 +778,14 @@ export function ProvidersPanel(): React.JSX.Element {
               ariaLabel="Chọn model mặc định"
               value={defaultModel?.id}
               placeholder="Chọn model"
-              options={modelGroups.map((group) => ({
-                value: group.ids[0] ?? '',
-                label:
-                  group.variants.length > 1
-                    ? `${group.displayName} · ${group.variants
-                        .filter((variant) => variant !== 'mặc định')
-                        .join('/')}`
-                    : group.displayName,
-                description: providerName(group.providerId),
-              }))}
+              options={models.map((model) => {
+                const label = modelVariantLabel(model)
+                return {
+                  value: model.id,
+                  label: label ? `${model.displayName} · ${label}` : model.displayName,
+                  description: providerName(model.providerId),
+                }
+              })}
               onValueChange={(value) => void setDefault(value)}
               className="w-[240px]"
             />
@@ -663,13 +803,23 @@ export function ProvidersPanel(): React.JSX.Element {
       </ul>
 
       <section className="flex flex-col gap-2.5 border-t border-[var(--border)] pt-3">
-        <div className="flex flex-col gap-0.5">
-          <h3 className="m-0 text-[12px] font-medium leading-[18px] text-[var(--text-muted)]">
-            Model đã cấu hình
-          </h3>
-          <p className="m-0 text-[12px] leading-[18px] text-[var(--text-faint)]">
-            {modelGroups.length} model · {models.length} biến thể
-          </p>
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex flex-col gap-0.5">
+            <h3 className="m-0 text-[12px] font-medium leading-[18px] text-[var(--text-muted)]">
+              Model đã cấu hình
+            </h3>
+            <p className="m-0 text-[12px] leading-[18px] text-[var(--text-faint)]">
+              {modelGroups.length} model · {models.length} biến thể
+            </p>
+          </div>
+          <Button
+            size="xs"
+            variant="secondary"
+            icon={<Plus size={12} />}
+            onClick={() => setModelOpen(true)}
+          >
+            Thêm model
+          </Button>
         </div>
 
         {modelGroups.length === 0 ? (
@@ -693,7 +843,12 @@ export function ProvidersPanel(): React.JSX.Element {
                   aria-label={
                     group.isDefault ? 'Model mặc định' : `Đặt ${group.displayName} làm mặc định`
                   }
-                  onClick={() => void setDefault(group.ids[0] ?? '')}
+                  onClick={() =>
+                    void setDefault(
+                      (group.variants.find((entry) => entry.isDefault) ?? group.variants[0])?.id ??
+                        '',
+                    )
+                  }
                   className={cn(
                     'inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-[var(--radius-sm)] transition-colors hover:bg-[var(--bg-active)]',
                     group.isDefault
@@ -710,11 +865,26 @@ export function ProvidersPanel(): React.JSX.Element {
                   {providerName(group.providerId)}
                 </span>
                 <span className="flex shrink-0 items-center gap-1">
-                  {group.variants
-                    .filter((variant) => variant !== 'mặc định')
-                    .map((variant) => (
-                      <Badge key={variant}>{variant}</Badge>
-                    ))}
+                  {group.variants.map((variant) => (
+                    <button
+                      key={variant.id}
+                      type="button"
+                      onClick={() => void setDefault(variant.id)}
+                      title={
+                        variant.isDefault
+                          ? `${variant.variant} đang là mặc định`
+                          : `Đặt ${variant.variant} làm mặc định`
+                      }
+                      className={cn(
+                        'rounded-[var(--radius-xs)] border px-1.5 py-0.5 text-[11px] leading-4 transition-colors',
+                        variant.isDefault
+                          ? 'border-[var(--warning)] text-[var(--warning)]'
+                          : 'border-[var(--border)] text-[var(--text-faint)] hover:bg-[var(--bg-hover)] hover:text-[var(--text)]',
+                      )}
+                    >
+                      {variant.variant}
+                    </button>
+                  ))}
                   <span className="font-mono text-[11px] tabular-nums text-[var(--text-faint)]">
                     {Math.round(group.contextWindow / 1024)}k
                   </span>
@@ -731,6 +901,8 @@ export function ProvidersPanel(): React.JSX.Element {
           </ul>
         )}
       </section>
+
+      <ModelDialog open={modelOpen} onOpenChange={setModelOpen} providers={providers} />
     </div>
   )
 }

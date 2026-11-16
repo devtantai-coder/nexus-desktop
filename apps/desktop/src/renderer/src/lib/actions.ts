@@ -1,5 +1,5 @@
 import { api, queryClient, useAppStore } from '../kernel'
-import type { AgentMode } from '@nexus/shared'
+import type { AgentEngine, AgentMode } from '@nexus/shared'
 
 export async function openProject(): Promise<void> {
   const store = useAppStore.getState()
@@ -19,6 +19,7 @@ export async function openProject(): Promise<void> {
 export async function newSession(options?: {
   projectId?: string | null
   mode?: AgentMode
+  engine?: AgentEngine
   title?: string
 }): Promise<string | null> {
   const store = useAppStore.getState()
@@ -32,6 +33,7 @@ export async function newSession(options?: {
         (store.settings['agent.permissionMode'] as
           'read-only' | 'workspace-write' | 'terminal-approval' | 'elevated' | 'unrestricted') ??
         'workspace-write',
+      engine: options?.engine ?? (store.settings['agent.engine'] as AgentEngine) ?? 'auto',
       title: options?.title,
     })
     await queryClient.invalidateQueries({ queryKey: ['sessions'] })

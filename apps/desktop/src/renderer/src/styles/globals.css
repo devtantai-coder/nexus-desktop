@@ -17,11 +17,20 @@
     --bg-rail: #ffffff;
     --bg-shell: #ffffff; /* --app-color-background-shell */
     --bg-titlebar: #f9f9f9; /* --app-color-background-application-menu */
-    --bg-hover: rgba(31, 35, 40, 0.053); /* menu item hover / --color-background-secondary-soft-alpha */
+    --bg-hover: rgba(
+      31,
+      35,
+      40,
+      0.053
+    ); /* menu item hover / --color-background-secondary-soft-alpha */
     --bg-active: rgba(31, 35, 40, 0.078); /* menu-item-background-color hover */
     --bg-code: #f6f6f6; /* --codex-chat-code-background ~ surface-under */
     --bg-code-head: #f4f4f4;
-    --bg-user-message: color-mix(in oklab, #1f2328 5%, transparent); /* --color-background-user-message */
+    --bg-user-message: color-mix(
+      in oklab,
+      #1f2328 5%,
+      transparent
+    ); /* --color-background-user-message */
     --bg-composer-action-bar: #f6f6f6; /* --color-background-composer-action-bar */
     --composer-primary: #1f2328; /* --color-background-composer-primary */
     --text-on-composer-primary: #ffffff; /* --color-text-composer-primary-inverse */
@@ -59,9 +68,12 @@
     --shadow-sm: 0 2px 4px -1px rgb(0 0 0 / 0.08);
     --shadow-md: 0px 2px 4px -1px #00000014;
     --shadow-lg: 0px 4px 8px -2px #0000001a;
-    --shadow-xl: 0px 0px 0px 0.5px rgba(31, 35, 40, 0.078), 0px 8px 16px -4px #0000001f; /* --menu-xl */
-    --shadow-menu: 0px 0px 0px 0.5px rgba(31, 35, 40, 0.078), 0px 8px 16px -4px #0000001f; /* --menu-box-shadow */
-    --composer-elevation: 0 0 0 1px #0000000a, 0 2px 8px 0 #0000000a, 0 4px 80px 8px #00000006; /* --elevation-composer */
+    --shadow-xl:
+      0px 0px 0px 0.5px rgba(31, 35, 40, 0.078), 0px 8px 16px -4px #0000001f; /* --menu-xl */
+    --shadow-menu:
+      0px 0px 0px 0.5px rgba(31, 35, 40, 0.078), 0px 8px 16px -4px #0000001f; /* --menu-box-shadow */
+    --composer-elevation:
+      0 0 0 1px #0000000a, 0 2px 8px 0 #0000000a, 0 4px 80px 8px #00000006; /* --elevation-composer */
     --shadow-overlay: var(--shadow-menu);
     --shadow-soft: var(--shadow-xs);
     --shadow-card: var(--shadow-xs);

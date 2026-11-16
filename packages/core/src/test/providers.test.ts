@@ -5,6 +5,7 @@ import { Providers } from '../providers.ts'
 
 test('providers: registry defaults', () => {
   assert.equal(Providers.defaultBaseUrl('openrouter'), 'https://openrouter.ai/api/v1')
+  assert.equal(Providers.defaultBaseUrl('vercel'), 'https://ai-gateway.vercel.app/v1')
   assert.equal(Providers.defaultBaseUrl('lmstudio'), 'http://127.0.0.1:1234/v1')
   assert.equal(Providers.defaultBaseUrl('xai'), 'https://api.x.ai/v1')
   assert.ok(Providers.defaultBaseUrl('azure-openai').includes('openai.azure.com'))

@@ -6,7 +6,6 @@ import { httpRequest } from './http.ts'
 import type { SecretStore } from './secrets.ts'
 import type { Store } from './store.ts'
 
- 
 export type Json = any
 import { nowMs } from './util.ts'
 
@@ -117,7 +116,7 @@ export class McpOauth {
     if (response.status < 200 || response.status >= 300) {
       throw new NexusError('E_AUTH', `OAuth endpoint trả ${response.status}: ${url}`)
     }
-    let parsed: Json = null
+    let parsed: Json
     try {
       parsed = JSON.parse(response.body)
     } catch {
@@ -201,14 +200,19 @@ export class McpOauth {
         '',
       )
       const servers = metadata?.['authorization_servers']
-      if (Array.isArray(servers) && servers.length > 0 && typeof servers[0] === 'string' && servers[0] !== '') {
+      if (
+        Array.isArray(servers) &&
+        servers.length > 0 &&
+        typeof servers[0] === 'string' &&
+        servers[0] !== ''
+      ) {
         issuer = servers[0] as string
       }
     } catch {
       // Không có metadata công bố: dùng chính origin làm authorization server.
     }
 
-    let serverMetadata: Json = null
+    let serverMetadata: Json
     try {
       serverMetadata = await this.httpJson(
         `${issuer}/.well-known/oauth-authorization-server`,
@@ -228,7 +232,10 @@ export class McpOauth {
     const tokenEndpoint = parseStringValue(serverMetadata, 'token_endpoint')
     const registrationEndpoint = parseStringValue(serverMetadata, 'registration_endpoint')
     if (authorizationEndpoint === '' || tokenEndpoint === '') {
-      throw new NexusError('E_AUTH', 'Authorization server thiếu authorization_endpoint/token_endpoint')
+      throw new NexusError(
+        'E_AUTH',
+        'Authorization server thiếu authorization_endpoint/token_endpoint',
+      )
     }
 
     const listener = await new Promise<Server>((resolve, reject) => {
@@ -270,8 +277,7 @@ export class McpOauth {
 
     const verifier = randomToken(32)
     const state = randomToken(16)
-    let authorizeUrl =
-      authorizationEndpoint + (authorizationEndpoint.includes('?') ? '&' : '?')
+    let authorizeUrl = authorizationEndpoint + (authorizationEndpoint.includes('?') ? '&' : '?')
     authorizeUrl += `response_type=code&client_id=${percentEncode(clientId)}`
     authorizeUrl += `&redirect_uri=${percentEncode(redirectUri)}`
     authorizeUrl += `&code_challenge=${codeChallenge(verifier)}&code_challenge_method=S256`
@@ -282,7 +288,7 @@ export class McpOauth {
     const resource = resourceUrl
     const onCallback = async (raw: string): Promise<string> => {
       const queryStart = raw.indexOf('?')
-      const query = queryStart === -1 ? '' : raw.slice(queryStart + 1).split(' ')[0] as string
+      const query = queryStart === -1 ? '' : (raw.slice(queryStart + 1).split(' ')[0] as string)
       const code = queryValue(query, 'code')
       const returnedState = queryValue(query, 'state')
       if (returnedState === '' && query.includes('state=') === false && resource === '') {
@@ -297,7 +303,12 @@ export class McpOauth {
       form += `&code_verifier=${percentEncode(verifier)}`
       form += `&resource=${percentEncode(resource)}`
       try {
-        const token = await this.httpJson(tokenEndpoint, 'POST', form, 'application/x-www-form-urlencoded')
+        const token = await this.httpJson(
+          tokenEndpoint,
+          'POST',
+          form,
+          'application/x-www-form-urlencoded',
+        )
         const expiresIn = typeof token?.['expires_in'] === 'number' ? token['expires_in'] : 0
         const tokens = this.load()
         const value = this.entry(tokens, serverId)

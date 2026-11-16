@@ -4,10 +4,9 @@ import { homedir } from 'node:os'
 
 import { NexusError } from './errors.ts'
 import type { EventBus } from './events.ts'
- 
+
 export type Json = any
 import { fileExists, isDirectory, uuid } from './util.ts'
-
 
 interface Session {
   id: string
@@ -100,7 +99,14 @@ export class TerminalManager {
       const args =
         process.platform === 'darwin'
           ? ['-q', '/dev/null', shell]
-          : ['-q', '-f', '-e', '-c', `export TERM=xterm-256color COLORTERM=truecolor NEXUS_TERMINAL=1; exec "${shell.replace(/"/g, '\\"')}"`, '/dev/null']
+          : [
+              '-q',
+              '-f',
+              '-e',
+              '-c',
+              `export TERM=xterm-256color COLORTERM=truecolor NEXUS_TERMINAL=1; exec "${shell.replace(/"/g, '\\"')}"`,
+              '/dev/null',
+            ]
       try {
         child = spawn('script', args, {
           cwd,

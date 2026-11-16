@@ -2,9 +2,20 @@ import { DatabaseSync } from 'node:sqlite'
 
 import { NexusError } from './errors.ts'
 
- 
 export type Json = any
-import { ensureDirectory, fileSize, jsonDouble, jsonInt, jsonStr, nowMs, sanitizeUtf8, startsWith, toLower, trim, uuid } from './util.ts'
+import {
+  ensureDirectory,
+  fileSize,
+  jsonDouble,
+  jsonInt,
+  jsonStr,
+  nowMs,
+  sanitizeUtf8,
+  startsWith,
+  toLower,
+  trim,
+  uuid,
+} from './util.ts'
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS users (
@@ -77,7 +88,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   pinned INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
-  model_variant TEXT NOT NULL DEFAULT ''
+  model_variant TEXT NOT NULL DEFAULT '',
+  engine TEXT NOT NULL DEFAULT 'auto'
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_project_updated ON sessions(project_id, updated_at);
 CREATE TABLE IF NOT EXISTS messages (
@@ -186,6 +198,18 @@ CREATE TABLE IF NOT EXISTS agent_memory (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_agent_memory_project ON agent_memory(project_id);
+CREATE TABLE IF NOT EXISTS code_chunks (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  path TEXT NOT NULL,
+  start_line INTEGER NOT NULL,
+  end_line INTEGER NOT NULL,
+  content TEXT NOT NULL,
+  mtime INTEGER NOT NULL DEFAULT 0,
+  embedding TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_code_chunks_project ON code_chunks(project_id);
 CREATE TABLE IF NOT EXISTS usage_records (
   id TEXT PRIMARY KEY,
   provider_id TEXT,
@@ -219,7 +243,7 @@ CREATE INDEX IF NOT EXISTS idx_file_index_project ON file_index(project_id);
 const PROJECT_COLUMNS =
   'id, name, path, description, git_remote, created_at, updated_at, default_branch, last_opened_at'
 const SESSION_COLUMNS =
-  'id, title, mode, permission_mode, archived, pinned, created_at, updated_at, project_id, workspace_id, provider_id, model_id, model_variant'
+  'id, title, mode, permission_mode, archived, pinned, created_at, updated_at, project_id, workspace_id, provider_id, model_id, model_variant, engine'
 const MESSAGE_COLUMNS =
   'id, session_id, role, content, status, created_at, reasoning, tool_calls_json, tool_call_id, model, provider_id, usage_json, error_json'
 const TASK_COLUMNS =
@@ -294,7 +318,10 @@ export class Store {
     try {
       this.db = new DatabaseSync(path)
     } catch (error) {
-      throw new NexusError('E_DB', `Cannot open database ${path}: ${error instanceof Error ? error.message : String(error)}`)
+      throw new NexusError(
+        'E_DB',
+        `Cannot open database ${path}: ${error instanceof Error ? error.message : String(error)}`,
+      )
     }
     this.db.exec('PRAGMA journal_mode=WAL;')
     this.db.exec('PRAGMA foreign_keys=ON;')
@@ -309,7 +336,10 @@ export class Store {
     try {
       this.db.exec(sql)
     } catch (error) {
-      throw new NexusError('E_DB', `SQLite error: ${error instanceof Error ? error.message : String(error)}`)
+      throw new NexusError(
+        'E_DB',
+        `SQLite error: ${error instanceof Error ? error.message : String(error)}`,
+      )
     }
   }
 
@@ -320,7 +350,10 @@ export class Store {
     return result
   }
 
-  private queryOne<T extends Record<string, unknown>>(sql: string, params: BindValue[] = []): T | undefined {
+  private queryOne<T extends Record<string, unknown>>(
+    sql: string,
+    params: BindValue[] = [],
+  ): T | undefined {
     const statement = this.db.prepare(sql)
     const row = statement.get(...params) as T | undefined
     return row
@@ -349,14 +382,24 @@ export class Store {
       this.exec("ALTER TABLE models ADD COLUMN variant TEXT NOT NULL DEFAULT '';")
     }
     this.exec('DROP INDEX IF EXISTS uq_models_provider_model;')
-    this.exec('CREATE UNIQUE INDEX IF NOT EXISTS uq_models_provider_model_variant ON models(provider_id, model_id, variant);')
+    this.exec(
+      'CREATE UNIQUE INDEX IF NOT EXISTS uq_models_provider_model_variant ON models(provider_id, model_id, variant);',
+    )
     if (!this.columnExists('sessions', 'model_variant')) {
       this.exec("ALTER TABLE sessions ADD COLUMN model_variant TEXT NOT NULL DEFAULT '';")
+    }
+    if (!this.columnExists('sessions', 'engine')) {
+      this.exec("ALTER TABLE sessions ADD COLUMN engine TEXT NOT NULL DEFAULT 'auto';")
     }
     if (!this.columnExists('usage_records', 'ttft_ms')) {
       this.exec('ALTER TABLE usage_records ADD COLUMN ttft_ms INTEGER;')
     }
     this.exec('PRAGMA user_version=2;')
+    this.exec('CREATE INDEX IF NOT EXISTS idx_tasks_project_state ON tasks(project_id, state);')
+    this.exec('CREATE INDEX IF NOT EXISTS idx_sessions_project_archived ON sessions(project_id, archived);')
+    this.exec('CREATE INDEX IF NOT EXISTS idx_file_changes_project ON file_changes(project_id);')
+    this.exec('CREATE INDEX IF NOT EXISTS idx_code_chunks_project_path ON code_chunks(project_id, path);')
+    this.exec('CREATE INDEX IF NOT EXISTS idx_tool_calls_session_created ON tool_calls(session_id, created_at);')
   }
 
   seedDefaults(): void {
@@ -389,6 +432,9 @@ export class Store {
       'panels.inspectorCollapsed': true,
       'editor.minimap': true,
       'editor.wordWrap': false,
+      'retrieval.providerId': '',
+      'retrieval.modelId': '',
+      'lsp.servers': [],
       'app.initialized': true,
     }
     for (const [key, value] of Object.entries(defaults)) this.settingSet(key, value)
@@ -400,18 +446,104 @@ export class Store {
     )
     const tables: Json[] = []
     for (const { name } of names) {
-      const row = this.queryOne<{ count: number | bigint }>(`SELECT COUNT(*) AS count FROM "${name}"`)
+      const row = this.queryOne<{ count: number | bigint }>(
+        `SELECT COUNT(*) AS count FROM "${name}"`,
+      )
       tables.push({ name, rows: Number(row?.count ?? 0) })
     }
     return { sizeBytes: fileSize(this.path), tables }
   }
 
+  codeChunkPaths(projectId: string): Array<{ path: string; mtime: number }> {
+    return this.query<{ path: string; mtime: number }>(
+      'SELECT path, mtime FROM code_chunks WHERE project_id = ?',
+      [projectId],
+    )
+  }
+
+  codeChunkInsert(record: {
+    id: string
+    projectId: string
+    path: string
+    startLine: number
+    endLine: number
+    content: string
+    mtime: number
+    embedding: string
+  }): void {
+    this.run(
+      `INSERT OR REPLACE INTO code_chunks
+       (id, project_id, path, start_line, end_line, content, mtime, embedding, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        record.id,
+        record.projectId,
+        record.path,
+        record.startLine,
+        record.endLine,
+        record.content,
+        record.mtime,
+        record.embedding,
+        nowMs(),
+      ],
+    )
+  }
+
+  codeChunksDelete(projectId: string, path: string): void {
+    this.run('DELETE FROM code_chunks WHERE project_id = ? AND path = ?', [projectId, path])
+  }
+
+  codeChunks(projectId: string): Array<{
+    id: string
+    path: string
+    startLine: number
+    endLine: number
+    content: string
+    mtime: number
+    embedding: string
+  }> {
+    return this.query<{
+      id: string
+      path: string
+      start_line: number
+      end_line: number
+      content: string
+      mtime: number
+      embedding: string
+    }>(
+      `SELECT id, path, start_line, end_line, content, mtime, embedding
+       FROM code_chunks WHERE project_id = ?`,
+      [projectId],
+    ).map((row) => ({
+      id: row.id,
+      path: row.path,
+      startLine: Number(row.start_line),
+      endLine: Number(row.end_line),
+      content: row.content,
+      mtime: Number(row.mtime),
+      embedding: row.embedding,
+    }))
+  }
+
+  codeChunkCount(projectId: string): number {
+    const row = this.queryOne<{ count: number | bigint }>(
+      'SELECT COUNT(*) AS count FROM code_chunks WHERE project_id = ?',
+      [projectId],
+    )
+    return Number(row?.count ?? 0)
+  }
+
   backup(destination: string): string {
-    ensureDirectory(destination.includes('/') ? destination.slice(0, destination.lastIndexOf('/')) : '.')
+    ensureDirectory(
+      destination.includes('/') ? destination.slice(0, destination.lastIndexOf('/')) : '.',
+    )
     try {
       this.exec(`VACUUM INTO '${destination.replace(/'/g, "''")}';`)
     } catch (error) {
-      throw new NexusError('E_DB', `Backup failed: ${error instanceof Error ? error.message : String(error)}`)
+      throw new NexusError(
+        'E_DB',
+        `Backup failed: ${error instanceof Error ? error.message : String(error)}`,
+      )
     }
     return destination
   }
@@ -478,22 +610,25 @@ export class Store {
       id: row['id'],
       kind: row['kind'],
       name: row['name'],
-      hasApiKey: typeof row['api_key_cipher'] === 'string' && (row['api_key_cipher'] as string) !== '',
+      hasApiKey:
+        typeof row['api_key_cipher'] === 'string' && (row['api_key_cipher'] as string) !== '',
       enabled: Number(row['enabled']) !== 0,
       supportsTools: Number(row['supports_tools']) !== 0,
       supportsVision: Number(row['supports_vision']) !== 0,
       createdAt: Number(row['created_at']),
       updatedAt: Number(row['updated_at']),
     }
-    if (row['base_url'] !== null && row['base_url'] !== undefined) provider['baseUrl'] = row['base_url']
-    if (row['api_key_hint'] !== null && row['api_key_hint'] !== undefined) provider['apiKeyHint'] = row['api_key_hint']
+    if (row['base_url'] !== null && row['base_url'] !== undefined)
+      provider['baseUrl'] = row['base_url']
+    if (row['api_key_hint'] !== null && row['api_key_hint'] !== undefined)
+      provider['apiKeyHint'] = row['api_key_hint']
     return provider
   }
 
   providerList(): Json[] {
-    return this.query<Record<string, unknown>>(`SELECT ${PROVIDER_COLUMNS} FROM providers ORDER BY created_at DESC`).map((row) =>
-      Store.providerPublicFromRow(row),
-    )
+    return this.query<Record<string, unknown>>(
+      `SELECT ${PROVIDER_COLUMNS} FROM providers ORDER BY created_at DESC`,
+    ).map((row) => Store.providerPublicFromRow(row))
   }
 
   providerGet(id: string): Json {
@@ -534,12 +669,22 @@ export class Store {
     if (id !== '') {
       const existing = this.providerRaw(id)
       if (baseUrl === '') baseUrl = jsonStr(existing, 'baseUrl')
-      this.run('UPDATE providers SET kind=?, name=?, base_url=?, enabled=?, updated_at=? WHERE id=?', [
-        sanitizeUtf8(kind), sanitizeUtf8(name), baseUrl === '' ? null : sanitizeUtf8(baseUrl), enabled ? 1 : 0, now, id,
-      ])
+      this.run(
+        'UPDATE providers SET kind=?, name=?, base_url=?, enabled=?, updated_at=? WHERE id=?',
+        [
+          sanitizeUtf8(kind),
+          sanitizeUtf8(name),
+          baseUrl === '' ? null : sanitizeUtf8(baseUrl),
+          enabled ? 1 : 0,
+          now,
+          id,
+        ],
+      )
       if (cipher !== undefined && cipher !== null) {
         this.run('UPDATE providers SET api_key_cipher=?, api_key_hint=? WHERE id=?', [
-          cipher === '' ? null : sanitizeUtf8(cipher), hint && hint !== '' ? sanitizeUtf8(hint) : null, id,
+          cipher === '' ? null : sanitizeUtf8(cipher),
+          hint && hint !== '' ? sanitizeUtf8(hint) : null,
+          id,
         ])
       }
       return this.providerGet(id)
@@ -548,13 +693,17 @@ export class Store {
     this.run(
       'INSERT INTO providers(id,kind,name,base_url,api_key_cipher,api_key_hint,enabled,supports_tools,supports_vision,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
       [
-        newId, sanitizeUtf8(kind), sanitizeUtf8(name), baseUrl === '' ? null : sanitizeUtf8(baseUrl),
+        newId,
+        sanitizeUtf8(kind),
+        sanitizeUtf8(name),
+        baseUrl === '' ? null : sanitizeUtf8(baseUrl),
         cipher && cipher !== '' ? sanitizeUtf8(cipher) : null,
         hint && hint !== '' ? sanitizeUtf8(hint) : null,
         enabled ? 1 : 0,
         boolValue(input?.['supportsTools'], true) ? 1 : 0,
         boolValue(input?.['supportsVision'], false) ? 1 : 0,
-        now, now,
+        now,
+        now,
       ],
     )
     return this.providerGet(newId)
@@ -678,11 +827,16 @@ export class Store {
       const maxOutput = jsonInt(input, 'maxOutputTokens', existing['maxOutputTokens'])
       const temperature = jsonDouble(input, 'temperature', existing['temperature'])
       const categories = 'categories' in input ? input['categories'] : existing['categories']
-      const reasoningEffort = requestedEffort === '' ? jsonStr(existing, 'reasoningEffort', 'medium') : requestedEffort
+      const reasoningEffort =
+        requestedEffort === '' ? jsonStr(existing, 'reasoningEffort', 'medium') : requestedEffort
       this.run(
         'UPDATE models SET model_id=?, display_name=?, context_window=?, max_output_tokens=?, temperature=?, categories_json=?, supports_tools=?, supports_vision=?, supports_reasoning=?, reasoning_effort=?, variant=? WHERE id=?',
         [
-          sanitizeUtf8(modelId), sanitizeUtf8(displayName), contextWindow, maxOutput, temperature,
+          sanitizeUtf8(modelId),
+          sanitizeUtf8(displayName),
+          contextWindow,
+          maxOutput,
+          temperature,
           sanitizeUtf8(JSON.stringify(categories ?? [])),
           boolValue(input?.['supportsTools'], existing['supportsTools']) ? 1 : 0,
           boolValue(input?.['supportsVision'], existing['supportsVision']) ? 1 : 0,
@@ -702,17 +856,25 @@ export class Store {
     this.run(
       'INSERT INTO models(id,provider_id,model_id,display_name,context_window,max_output_tokens,temperature,categories_json,supports_tools,supports_vision,supports_reasoning,is_default,created_at,reasoning_effort,variant) VALUES(?,?,?,?,?,?,?,?,?,?,?,0,?,?,?)',
       [
-        id, sanitizeUtf8(providerId), sanitizeUtf8(modelId), sanitizeUtf8(displayName),
-        jsonInt(input, 'contextWindow', 32768), jsonInt(input, 'maxOutputTokens', 8192),
+        id,
+        sanitizeUtf8(providerId),
+        sanitizeUtf8(modelId),
+        sanitizeUtf8(displayName),
+        jsonInt(input, 'contextWindow', 32768),
+        jsonInt(input, 'maxOutputTokens', 8192),
         jsonDouble(input, 'temperature', 0.2),
         sanitizeUtf8(JSON.stringify(categories ?? ['general'])),
         boolValue(input?.['supportsTools'], true) ? 1 : 0,
         boolValue(input?.['supportsVision'], false) ? 1 : 0,
         boolValue(input?.['supportsReasoning'], false) ? 1 : 0,
-        now, reasoningEffort, sanitizeUtf8(variant),
+        now,
+        reasoningEffort,
+        sanitizeUtf8(variant),
       ],
     )
-    const countRow = this.queryOne<{ count: number | bigint }>('SELECT COUNT(*) AS count FROM models WHERE is_default=1')
+    const countRow = this.queryOne<{ count: number | bigint }>(
+      'SELECT COUNT(*) AS count FROM models WHERE is_default=1',
+    )
     if (countRow && Number(countRow.count) === 0) this.modelSetDefault(id)
     return this.modelGet(id)
   }
@@ -743,9 +905,12 @@ export class Store {
       createdAt: Number(row['created_at']),
       updatedAt: Number(row['updated_at']),
     }
-    if (row['description'] !== null && row['description'] !== undefined) project['description'] = row['description']
-    if (row['git_remote'] !== null && row['git_remote'] !== undefined) project['gitRemote'] = row['git_remote']
-    if (row['default_branch'] !== null && row['default_branch'] !== undefined) project['defaultBranch'] = row['default_branch']
+    if (row['description'] !== null && row['description'] !== undefined)
+      project['description'] = row['description']
+    if (row['git_remote'] !== null && row['git_remote'] !== undefined)
+      project['gitRemote'] = row['git_remote']
+    if (row['default_branch'] !== null && row['default_branch'] !== undefined)
+      project['defaultBranch'] = row['default_branch']
     if (row['last_opened_at'] !== null && row['last_opened_at'] !== undefined) {
       project['lastOpenedAt'] = Number(row['last_opened_at'])
     }
@@ -786,7 +951,14 @@ export class Store {
       this.db.exec('BEGIN;')
       this.run(
         'UPDATE projects SET name=?, last_opened_at=?, updated_at=?, git_remote=COALESCE(?, git_remote), default_branch=COALESCE(?, default_branch) WHERE id=?',
-        [name, now, now, gitRemote && gitRemote !== '' ? gitRemote : null, defaultBranch && defaultBranch !== '' ? defaultBranch : null, existing['id'] as string],
+        [
+          name,
+          now,
+          now,
+          gitRemote && gitRemote !== '' ? gitRemote : null,
+          defaultBranch && defaultBranch !== '' ? defaultBranch : null,
+          existing['id'] as string,
+        ],
       )
       this.db.exec('COMMIT;')
       return this.projectGet(existing['id'] as string)
@@ -795,10 +967,14 @@ export class Store {
     this.run(
       'INSERT INTO projects(id,name,path,git_remote,default_branch,last_opened_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)',
       [
-        id, sanitizeUtf8(name), sanitizeUtf8(path),
+        id,
+        sanitizeUtf8(name),
+        sanitizeUtf8(path),
         gitRemote && gitRemote !== '' ? sanitizeUtf8(gitRemote) : null,
         defaultBranch && defaultBranch !== '' ? sanitizeUtf8(defaultBranch) : null,
-        now, now, now,
+        now,
+        now,
+        now,
       ],
     )
     return this.projectGet(id)
@@ -812,7 +988,10 @@ export class Store {
     if (typeof patch?.['description'] === 'string') description = patch['description']
     else if (typeof existing['description'] === 'string') description = existing['description']
     this.run('UPDATE projects SET name=?, description=?, updated_at=? WHERE id=?', [
-      sanitizeUtf8(name), description === undefined || description === null ? null : sanitizeUtf8(description), nowMs(), id,
+      sanitizeUtf8(name),
+      description === undefined || description === null ? null : sanitizeUtf8(description),
+      nowMs(),
+      id,
     ])
     return this.projectGet(id)
   }
@@ -841,6 +1020,7 @@ export class Store {
       createdAt: Number(row['created_at']),
       updatedAt: Number(row['updated_at']),
       modelVariant: (row['model_variant'] as string | null) ?? '',
+      engine: (row['engine'] as string | null) ?? 'native',
     }
     if (row['project_id'] !== null) session['projectId'] = row['project_id']
     if (row['workspace_id'] !== null) session['workspaceId'] = row['workspace_id']
@@ -888,14 +1068,19 @@ export class Store {
     const permissionMode = jsonStr(input, 'permissionMode', 'workspace-write')
     const modelVariant = typeof input?.['modelVariant'] === 'string' ? input['modelVariant'] : ''
     this.run(
-      'INSERT INTO sessions(id,project_id,title,mode,provider_id,model_id,permission_mode,archived,pinned,created_at,updated_at,model_variant) VALUES(?,?,?,?,?,?,?,0,0,?,?,?)',
+      'INSERT INTO sessions(id,project_id,title,mode,provider_id,model_id,permission_mode,archived,pinned,engine,created_at,updated_at,model_variant) VALUES(?,?,?,?,?,?,?,0,0,?,?,?,?)',
       [
         id,
         typeof input?.['projectId'] === 'string' ? input['projectId'] : null,
-        sanitizeUtf8(title), mode,
+        sanitizeUtf8(title),
+        mode,
         typeof input?.['providerId'] === 'string' ? input['providerId'] : null,
         typeof input?.['modelId'] === 'string' ? input['modelId'] : null,
-        permissionMode, now, now, sanitizeUtf8(modelVariant),
+        permissionMode,
+        typeof input?.['engine'] === 'string' ? input['engine'] : 'auto',
+        now,
+        now,
+        sanitizeUtf8(modelVariant),
       ],
     )
     return this.sessionGet(id)
@@ -907,21 +1092,38 @@ export class Store {
     const title = jsonStr(patch, 'title', existing['title'])
     const mode = jsonStr(patch, 'mode', existing['mode'])
     const permissionMode = jsonStr(patch, 'permissionMode', existing['permissionMode'])
-    let providerId: string | null = typeof existing['providerId'] === 'string' ? existing['providerId'] : null
-    let modelId: string | null = typeof existing['modelId'] === 'string' ? existing['modelId'] : null
-    let projectId: string | null = typeof existing['projectId'] === 'string' ? existing['projectId'] : null
-    let modelVariant: string = typeof existing['modelVariant'] === 'string' ? (existing['modelVariant'] as string) : ''
+    let providerId: string | null =
+      typeof existing['providerId'] === 'string' ? existing['providerId'] : null
+    let modelId: string | null =
+      typeof existing['modelId'] === 'string' ? existing['modelId'] : null
+    let projectId: string | null =
+      typeof existing['projectId'] === 'string' ? existing['projectId'] : null
+    let modelVariant: string =
+      typeof existing['modelVariant'] === 'string' ? (existing['modelVariant'] as string) : ''
+    let engine: string =
+      typeof existing['engine'] === 'string' ? (existing['engine'] as string) : 'auto'
     if (typeof patch?.['providerId'] === 'string') providerId = patch['providerId']
     if (typeof patch?.['modelId'] === 'string') modelId = patch['modelId']
     if (typeof patch?.['projectId'] === 'string') projectId = patch['projectId']
     if (typeof patch?.['modelVariant'] === 'string') modelVariant = patch['modelVariant']
+    if (typeof patch?.['engine'] === 'string') engine = patch['engine']
     const archived = boolValue(patch?.['archived'], boolValue(existing['archived'], false))
     const pinned = boolValue(patch?.['pinned'], boolValue(existing['pinned'], false))
     this.run(
-      'UPDATE sessions SET title=?, mode=?, provider_id=?, model_id=?, permission_mode=?, archived=?, pinned=?, project_id=?, model_variant=?, updated_at=? WHERE id=?',
+      'UPDATE sessions SET title=?, mode=?, provider_id=?, model_id=?, permission_mode=?, archived=?, pinned=?, project_id=?, model_variant=?, engine=?, updated_at=? WHERE id=?',
       [
-        sanitizeUtf8(title), mode, providerId, modelId, permissionMode,
-        archived ? 1 : 0, pinned ? 1 : 0, projectId, sanitizeUtf8(modelVariant), nowMs(), id,
+        sanitizeUtf8(title),
+        mode,
+        providerId,
+        modelId,
+        permissionMode,
+        archived ? 1 : 0,
+        pinned ? 1 : 0,
+        projectId,
+        sanitizeUtf8(modelVariant),
+        engine,
+        nowMs(),
+        id,
       ],
     )
     return this.sessionGet(id)
@@ -943,6 +1145,7 @@ export class Store {
     if (typeof source['providerId'] === 'string') input['providerId'] = source['providerId']
     if (typeof source['modelId'] === 'string') input['modelId'] = source['modelId']
     if (typeof source['modelVariant'] === 'string') input['modelVariant'] = source['modelVariant']
+    if (typeof source['engine'] === 'string') input['engine'] = source['engine']
     const copy = this.sessionCreate(input)
     const copyId = copy['id'] as string
     const messages = this.messageList(id)
@@ -1047,7 +1250,10 @@ export class Store {
     this.run(
       'INSERT INTO messages(id,session_id,role,content,reasoning,tool_calls_json,tool_call_id,model,provider_id,usage_json,status,error_json,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',
       [
-        id, jsonStr(input, 'sessionId'), jsonStr(input, 'role'), jsonStr(input, 'content'),
+        id,
+        jsonStr(input, 'sessionId'),
+        jsonStr(input, 'role'),
+        jsonStr(input, 'content'),
         typeof input?.['reasoning'] === 'string' ? sanitizeUtf8(input['reasoning']) : null,
         'toolCalls' in input ? JSON.stringify(input['toolCalls'] ?? null) : null,
         typeof input?.['toolCallId'] === 'string' ? input['toolCallId'] : null,
@@ -1071,10 +1277,16 @@ export class Store {
     }
     if ('content' in patch) push('content', sanitizeUtf8(jsonStr(patch, 'content')))
     if ('reasoning' in patch) {
-      push('reasoning', patch['reasoning'] === null ? null : sanitizeUtf8(jsonStr(patch, 'reasoning')))
+      push(
+        'reasoning',
+        patch['reasoning'] === null ? null : sanitizeUtf8(jsonStr(patch, 'reasoning')),
+      )
     }
     if ('toolCalls' in patch) {
-      push('tool_calls_json', patch['toolCalls'] === null ? null : JSON.stringify(patch['toolCalls']))
+      push(
+        'tool_calls_json',
+        patch['toolCalls'] === null ? null : JSON.stringify(patch['toolCalls']),
+      )
     }
     if ('status' in patch) push('status', jsonStr(patch, 'status'))
     if ('usage' in patch) {
@@ -1105,16 +1317,20 @@ export class Store {
       createdAt: Number(row['created_at']),
       updatedAt: Number(row['updated_at']),
     }
-    if (row['project_id'] !== null && row['project_id'] !== undefined) task['projectId'] = row['project_id']
+    if (row['project_id'] !== null && row['project_id'] !== undefined)
+      task['projectId'] = row['project_id']
     const plan = parseOptionalJson((row['plan_json'] as string | null) ?? null)
     if (plan !== null && plan !== undefined) task['plan'] = plan
     if (row['summary'] !== null && row['summary'] !== undefined) task['summary'] = row['summary']
     const error = parseOptionalJson((row['error_json'] as string | null) ?? null)
     if (error !== null && error !== undefined) task['error'] = error
-    if (row['provider_id'] !== null && row['provider_id'] !== undefined) task['providerId'] = row['provider_id']
+    if (row['provider_id'] !== null && row['provider_id'] !== undefined)
+      task['providerId'] = row['provider_id']
     if (row['model_id'] !== null && row['model_id'] !== undefined) task['modelId'] = row['model_id']
-    if (row['started_at'] !== null && row['started_at'] !== undefined) task['startedAt'] = Number(row['started_at'])
-    if (row['completed_at'] !== null && row['completed_at'] !== undefined) task['completedAt'] = Number(row['completed_at'])
+    if (row['started_at'] !== null && row['started_at'] !== undefined)
+      task['startedAt'] = Number(row['started_at'])
+    if (row['completed_at'] !== null && row['completed_at'] !== undefined)
+      task['completedAt'] = Number(row['completed_at'])
     return task
   }
 
@@ -1128,12 +1344,17 @@ export class Store {
     this.run(
       "INSERT INTO tasks(id,session_id,project_id,title,prompt,mode,state,provider_id,model_id,permission_mode,created_at,updated_at) VALUES(?,?,?,?,?,?,'idle',?,?,?,?,?)",
       [
-        id, jsonStr(input, 'sessionId'),
+        id,
+        jsonStr(input, 'sessionId'),
         typeof input?.['projectId'] === 'string' ? input['projectId'] : null,
-        sanitizeUtf8(title), sanitizeUtf8(prompt), jsonStr(input, 'mode', 'agent'),
+        sanitizeUtf8(title),
+        sanitizeUtf8(prompt),
+        jsonStr(input, 'mode', 'agent'),
         typeof input?.['providerId'] === 'string' ? input['providerId'] : null,
         typeof input?.['modelId'] === 'string' ? input['modelId'] : null,
-        jsonStr(input, 'permissionMode', 'workspace-write'), now, now,
+        jsonStr(input, 'permissionMode', 'workspace-write'),
+        now,
+        now,
       ],
     )
     return this.taskGet(id)
@@ -1174,7 +1395,12 @@ export class Store {
   taskRemove(id: string): void {
     this.db.exec('BEGIN;')
     try {
-      for (const sql of ['DELETE FROM task_steps WHERE task_id=?', 'DELETE FROM tool_calls WHERE task_id=?', 'DELETE FROM file_changes WHERE task_id=?', 'DELETE FROM tasks WHERE id=?']) {
+      for (const sql of [
+        'DELETE FROM task_steps WHERE task_id=?',
+        'DELETE FROM tool_calls WHERE task_id=?',
+        'DELETE FROM file_changes WHERE task_id=?',
+        'DELETE FROM tasks WHERE id=?',
+      ]) {
         this.run(sql, [id])
       }
       this.db.exec('COMMIT;')
@@ -1192,11 +1418,19 @@ export class Store {
   }
 
   taskSetPlan(id: string, plan: Json): void {
-    this.run('UPDATE tasks SET plan_json=?, updated_at=? WHERE id=?', [JSON.stringify(plan ?? {}), nowMs(), id])
+    this.run('UPDATE tasks SET plan_json=?, updated_at=? WHERE id=?', [
+      JSON.stringify(plan ?? {}),
+      nowMs(),
+      id,
+    ])
   }
 
   taskSetSummary(id: string, summary: string): void {
-    this.run('UPDATE tasks SET summary=?, updated_at=? WHERE id=?', [sanitizeUtf8(summary), nowMs(), id])
+    this.run('UPDATE tasks SET summary=?, updated_at=? WHERE id=?', [
+      sanitizeUtf8(summary),
+      nowMs(),
+      id,
+    ])
   }
 
   taskSetError(id: string, error: Json): void {
@@ -1241,7 +1475,13 @@ export class Store {
         const description = typeof item === 'string' ? '' : jsonStr(item, 'description')
         this.run(
           "INSERT INTO task_steps(id,task_id,index_no,title,description,state) VALUES(?,?,?,?,?,'pending')",
-          [uuid(), taskId, index, sanitizeUtf8(trim(title)), description === '' ? null : sanitizeUtf8(description)],
+          [
+            uuid(),
+            taskId,
+            index,
+            sanitizeUtf8(trim(title)),
+            description === '' ? null : sanitizeUtf8(description),
+          ],
         )
         index += 1
       }
@@ -1329,9 +1569,12 @@ export class Store {
       [
         id,
         typeof input?.['taskId'] === 'string' ? input['taskId'] : null,
-        jsonStr(input, 'sessionId'), jsonStr(input, 'toolName'),
+        jsonStr(input, 'sessionId'),
+        jsonStr(input, 'toolName'),
         JSON.stringify('input' in input ? input['input'] : {}),
-        jsonStr(input, 'status', 'pending'), 'none', nowMs(),
+        jsonStr(input, 'status', 'pending'),
+        'none',
+        nowMs(),
       ],
     )
     return this.toolCallGet(id)
@@ -1380,8 +1623,10 @@ export class Store {
     }
     if (row['task_id'] !== null) change['taskId'] = row['task_id']
     if (row['project_id'] !== null) change['projectId'] = row['project_id']
-    if (row['before_content'] !== null && row['before_content'] !== undefined) change['beforeContent'] = row['before_content']
-    if (row['after_content'] !== null && row['after_content'] !== undefined) change['afterContent'] = row['after_content']
+    if (row['before_content'] !== null && row['before_content'] !== undefined)
+      change['beforeContent'] = row['before_content']
+    if (row['after_content'] !== null && row['after_content'] !== undefined)
+      change['afterContent'] = row['after_content']
     return change
   }
 
@@ -1403,7 +1648,9 @@ export class Store {
       }
     }
     sql += ' ORDER BY created_at DESC, rowid DESC'
-    return this.query<Record<string, unknown>>(sql, values).map((row) => Store.fileChangeFromRow(row))
+    return this.query<Record<string, unknown>>(sql, values).map((row) =>
+      Store.fileChangeFromRow(row),
+    )
   }
 
   fileChangePaths(taskId: string): string[] {
@@ -1435,8 +1682,10 @@ export class Store {
         jsonStr(input, 'changeType', 'modify'),
         typeof input?.['beforeContent'] === 'string' ? input['beforeContent'] : null,
         typeof input?.['afterContent'] === 'string' ? input['afterContent'] : null,
-        jsonInt(input, 'addedLines', 0), jsonInt(input, 'removedLines', 0),
-        jsonStr(input, 'status', 'proposed'), nowMs(),
+        jsonInt(input, 'addedLines', 0),
+        jsonInt(input, 'removedLines', 0),
+        jsonStr(input, 'status', 'proposed'),
+        nowMs(),
       ],
     )
     return this.fileChangeGet(id)
@@ -1457,11 +1706,15 @@ export class Store {
       source: row['source'],
       createdAt: Number(row['created_at']),
     }
-    if (row['provider_id'] !== null && row['provider_id'] !== undefined) usage['providerId'] = row['provider_id']
-    if (row['model_id'] !== null && row['model_id'] !== undefined) usage['modelId'] = row['model_id']
-    if (row['session_id'] !== null && row['session_id'] !== undefined) usage['sessionId'] = row['session_id']
+    if (row['provider_id'] !== null && row['provider_id'] !== undefined)
+      usage['providerId'] = row['provider_id']
+    if (row['model_id'] !== null && row['model_id'] !== undefined)
+      usage['modelId'] = row['model_id']
+    if (row['session_id'] !== null && row['session_id'] !== undefined)
+      usage['sessionId'] = row['session_id']
     if (row['task_id'] !== null && row['task_id'] !== undefined) usage['taskId'] = row['task_id']
-    if (row['duration_ms'] !== null && row['duration_ms'] !== undefined) usage['durationMs'] = Number(row['duration_ms'])
+    if (row['duration_ms'] !== null && row['duration_ms'] !== undefined)
+      usage['durationMs'] = Number(row['duration_ms'])
     if (row['estimated_cost_usd'] !== null && row['estimated_cost_usd'] !== undefined) {
       usage['estimatedCostUsd'] = Number(row['estimated_cost_usd'])
     }
@@ -1478,14 +1731,22 @@ export class Store {
         typeof input?.['modelId'] === 'string' ? input['modelId'] : null,
         typeof input?.['sessionId'] === 'string' ? input['sessionId'] : null,
         typeof input?.['taskId'] === 'string' ? input['taskId'] : null,
-        jsonInt(input, 'inputTokens', 0), jsonInt(input, 'outputTokens', 0), jsonInt(input, 'cachedInputTokens', 0),
+        jsonInt(input, 'inputTokens', 0),
+        jsonInt(input, 'outputTokens', 0),
+        jsonInt(input, 'cachedInputTokens', 0),
         jsonInt(input, 'durationMs', 0),
-        input?.['ttftMs'] === undefined || input?.['ttftMs'] === null ? null : jsonInt(input, 'ttftMs', 0),
+        input?.['ttftMs'] === undefined || input?.['ttftMs'] === null
+          ? null
+          : jsonInt(input, 'ttftMs', 0),
         jsonDouble(input, 'estimatedCostUsd', 0),
-        jsonStr(input, 'source', 'provider'), nowMs(),
+        jsonStr(input, 'source', 'provider'),
+        nowMs(),
       ],
     )
-    const rows = this.query<Record<string, unknown>>(`SELECT ${USAGE_COLUMNS} FROM usage_records WHERE id=?`, [id])
+    const rows = this.query<Record<string, unknown>>(
+      `SELECT ${USAGE_COLUMNS} FROM usage_records WHERE id=?`,
+      [id],
+    )
     return rows.length > 0 ? Store.usageFromRow(rows[0] as Record<string, unknown>) : { id }
   }
 
@@ -1504,7 +1765,7 @@ export class Store {
       [since],
     )
     const byModel = this.query<Record<string, unknown>>(
-      'SELECT COALESCE(model_id,\'?\') AS model_id, SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens, COUNT(*) AS requests FROM usage_records WHERE created_at>=? GROUP BY model_id ORDER BY COUNT(*) DESC',
+      "SELECT COALESCE(model_id,'?') AS model_id, SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens, COUNT(*) AS requests FROM usage_records WHERE created_at>=? GROUP BY model_id ORDER BY COUNT(*) DESC",
       [since],
     )
     return {
@@ -1527,7 +1788,7 @@ export class Store {
       [sessionId],
     )
     const toolMs = this.queryOne<Record<string, unknown>>(
-      "SELECT COALESCE(SUM(duration_ms),0) AS tool_ms FROM tool_calls WHERE session_id=?",
+      'SELECT COALESCE(SUM(duration_ms),0) AS tool_ms FROM tool_calls WHERE session_id=?',
       [sessionId],
     )
     const plan = this.queryOne<Record<string, unknown>>(
@@ -1564,7 +1825,8 @@ export class Store {
         tags: parseOptionalJson((row['tags_json'] as string | null) ?? null) ?? [],
         createdAt: Number(row['created_at']),
       }
-      if (row['project_id'] !== null && row['project_id'] !== undefined) memory['projectId'] = row['project_id']
+      if (row['project_id'] !== null && row['project_id'] !== undefined)
+        memory['projectId'] = row['project_id']
       if (row['source_session_id'] !== null && row['source_session_id'] !== undefined) {
         memory['sourceSessionId'] = row['source_session_id']
       }
@@ -1580,13 +1842,17 @@ export class Store {
       [
         id,
         typeof input?.['projectId'] === 'string' ? input['projectId'] : null,
-        jsonStr(input, 'kind', 'fact'), sanitizeUtf8(jsonStr(input, 'content')),
+        jsonStr(input, 'kind', 'fact'),
+        sanitizeUtf8(jsonStr(input, 'content')),
         JSON.stringify(Array.isArray(input?.['tags']) ? input['tags'] : []),
         typeof input?.['sourceSessionId'] === 'string' ? input['sourceSessionId'] : null,
         nowMs(),
       ],
     )
-    const rows = this.memoryList(typeof input?.['projectId'] === 'string' ? input['projectId'] : undefined, 10_000)
+    const rows = this.memoryList(
+      typeof input?.['projectId'] === 'string' ? input['projectId'] : undefined,
+      10_000,
+    )
     const found = rows.find((row) => row['id'] === id)
     return found ?? { id }
   }
@@ -1601,7 +1867,9 @@ export class Store {
     this.run(
       'INSERT INTO git_operations(id,project_id,operation,args_json,status,output,error,created_at) VALUES(?,?,?,?,?,?,?,?)',
       [
-        id, jsonStr(input, 'projectId'), jsonStr(input, 'operation'),
+        id,
+        jsonStr(input, 'projectId'),
+        jsonStr(input, 'operation'),
         'args' in input ? JSON.stringify(input['args'] ?? null) : null,
         jsonStr(input, 'status'),
         typeof input?.['output'] === 'string' ? input['output'] : null,

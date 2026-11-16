@@ -47,9 +47,7 @@ export function TerminalPanel({ onClose }: { onClose: () => void }): React.JSX.E
         const { terminalId, data = '' } = event.payload
         setTabs((current) =>
           current.map((tab) =>
-            tab.id === terminalId
-              ? { ...tab, buffer: (tab.buffer + data).slice(-200_000) }
-              : tab,
+            tab.id === terminalId ? { ...tab, buffer: (tab.buffer + data).slice(-200_000) } : tab,
           ),
         )
       }
@@ -109,10 +107,20 @@ export function TerminalPanel({ onClose }: { onClose: () => void }): React.JSX.E
             </button>
           ))}
         </div>
-        <button type="button" onClick={() => void createTerminal()} aria-label="New terminal" className="icon-btn-sm">
+        <button
+          type="button"
+          onClick={() => void createTerminal()}
+          aria-label="New terminal"
+          className="icon-btn-sm"
+        >
           <Plus size={14} />
         </button>
-        <button type="button" onClick={onClose} aria-label="Close bottom panel" className="icon-btn-sm">
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close bottom panel"
+          className="icon-btn-sm"
+        >
           <span className="text-[13px]">×</span>
         </button>
       </div>

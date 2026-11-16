@@ -442,7 +442,9 @@ export function SettingsPage(): React.JSX.Element {
 
       <main className="min-w-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-[726px] px-0 pb-16 pt-2">
-          <header className={cn('mb-7 flex items-start gap-3 px-0.5', !meta.description && 'sr-only')}>
+          <header
+            className={cn('mb-7 flex items-start gap-3 px-0.5', !meta.description && 'sr-only')}
+          >
             <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--text-muted)]">
               <SectionIcon size={15} />
             </span>
@@ -488,11 +490,24 @@ export function SettingsPage(): React.JSX.Element {
                     className="w-[170px]"
                   />
                 </SettingRow>
+                <SettingRow
+                  title="Agent engine"
+                  description="Bộ máy chạy agent. Tự động ưu tiên Claude Agent SDK khi có provider Anthropic; LangGraph dùng state graph, có human-in-the-loop."
+                >
+                  <Select
+                    value={(settings['agent.engine'] as string) ?? 'auto'}
+                    options={[
+                      { value: 'auto', label: 'Tự động (ưu tiên Claude)' },
+                      { value: 'native', label: 'Nexus native' },
+                      { value: 'claude-agent-sdk', label: 'Claude Agent SDK' },
+                      { value: 'langgraph', label: 'LangGraph' },
+                    ]}
+                    onValueChange={(value) => setSetting('agent.engine', value)}
+                    className="w-[190px]"
+                  />
+                </SettingRow>
               </SettingsGroup>
-              <SettingsGroup
-                title="Composer"
-                description="Hành vi hộp soạn tin như Codex desktop."
-              >
+              <SettingsGroup title="Composer" description="Hành vi hộp soạn tin như Codex desktop.">
                 <SettingRow
                   title="Enter để gửi"
                   description="Tắt: Enter xuống dòng, Ctrl+Enter mới gửi."
@@ -574,7 +589,10 @@ export function SettingsPage(): React.JSX.Element {
                     </Button>
                   </div>
                 </SettingRow>
-                <SettingRow title="Default file open destination" description="Nơi mở tệp và thư mục mặc định.">
+                <SettingRow
+                  title="Default file open destination"
+                  description="Nơi mở tệp và thư mục mặc định."
+                >
                   <Select
                     value={(settings['general.openDestination'] as string) ?? 'editor'}
                     options={[
@@ -613,7 +631,10 @@ export function SettingsPage(): React.JSX.Element {
                     className="w-[190px]"
                   />
                 </SettingRow>
-                <SettingRow title="Full view by default" description="Tab nội dung mở toàn màn hình trong chat mới.">
+                <SettingRow
+                  title="Full view by default"
+                  description="Tab nội dung mở toàn màn hình trong chat mới."
+                >
                   <Switch
                     checked={Boolean(settings['app.fullViewDefault'] ?? false)}
                     onCheckedChange={(value) => setSetting('app.fullViewDefault', value)}
@@ -676,7 +697,10 @@ export function SettingsPage(): React.JSX.Element {
                     className="w-[150px]"
                   />
                 </SettingRow>
-                <SettingRow title="Open source licenses" description="Thông báo bản quyền của thư viện đi kèm.">
+                <SettingRow
+                  title="Open source licenses"
+                  description="Thông báo bản quyền của thư viện đi kèm."
+                >
                   <Button variant="ghost" size="sm" onClick={() => setLicensesOpen(true)}>
                     View
                   </Button>
@@ -705,7 +729,10 @@ export function SettingsPage(): React.JSX.Element {
                     onCheckedChange={(value) => setSetting('composer.plainText', value)}
                   />
                 </SettingRow>
-                <SettingRow title="Show context window usage" description="Hiện số token đã dùng dưới composer.">
+                <SettingRow
+                  title="Show context window usage"
+                  description="Hiện số token đã dùng dưới composer."
+                >
                   <Switch
                     checked={settings['composer.showUsage'] !== false}
                     onCheckedChange={(value) => setSetting('composer.showUsage', value)}
@@ -739,7 +766,10 @@ export function SettingsPage(): React.JSX.Element {
               </SettingsGroup>
 
               <SettingsGroup title="Popout Window">
-                <SettingRow title="Popout Window hotkey" description="Phím tắt mở chat trong cửa sổ riêng.">
+                <SettingRow
+                  title="Popout Window hotkey"
+                  description="Phím tắt mở chat trong cửa sổ riêng."
+                >
                   <Select
                     value={(settings['app.popoutHotkey'] as string) ?? 'off'}
                     options={[
@@ -751,7 +781,10 @@ export function SettingsPage(): React.JSX.Element {
                     className="w-[170px]"
                   />
                 </SettingRow>
-                <SettingRow title="Default to standalone chat" description="Chat mới bắt đầu ngoài dự án.">
+                <SettingRow
+                  title="Default to standalone chat"
+                  description="Chat mới bắt đầu ngoài dự án."
+                >
                   <Switch
                     checked={Boolean(settings['app.standaloneChat'] ?? false)}
                     onCheckedChange={(value) => setSetting('app.standaloneChat', value)}
@@ -760,7 +793,10 @@ export function SettingsPage(): React.JSX.Element {
               </SettingsGroup>
 
               <SettingsGroup title="Notifications">
-                <SettingRow title="Turn completion notifications" description="Khi nào báo hiệu tác vụ xong.">
+                <SettingRow
+                  title="Turn completion notifications"
+                  description="Khi nào báo hiệu tác vụ xong."
+                >
                   <Select
                     value={(settings['app.notifyOnFinishMode'] as string) ?? 'unfocused'}
                     options={[
@@ -772,19 +808,28 @@ export function SettingsPage(): React.JSX.Element {
                     className="w-[190px]"
                   />
                 </SettingRow>
-                <SettingRow title="Enable permission notifications" description="Báo khi thread cần bạn duyệt.">
+                <SettingRow
+                  title="Enable permission notifications"
+                  description="Báo khi thread cần bạn duyệt."
+                >
                   <Switch
                     checked={settings['app.notifyOnApproval'] !== false}
                     onCheckedChange={(value) => setSetting('app.notifyOnApproval', value)}
                   />
                 </SettingRow>
-                <SettingRow title="Enable question notifications" description="Báo khi thread hỏi lại.">
+                <SettingRow
+                  title="Enable question notifications"
+                  description="Báo khi thread hỏi lại."
+                >
                   <Switch
                     checked={settings['app.notifyOnQuestion'] !== false}
                     onCheckedChange={(value) => setSetting('app.notifyOnQuestion', value)}
                   />
                 </SettingRow>
-                <SettingRow title="Notification sound" description="Âm thanh cho hoàn tất và xin quyền.">
+                <SettingRow
+                  title="Notification sound"
+                  description="Âm thanh cho hoàn tất và xin quyền."
+                >
                   <Select
                     value={(settings['app.notifySound'] as string) ?? 'default'}
                     options={[
@@ -798,7 +843,10 @@ export function SettingsPage(): React.JSX.Element {
               </SettingsGroup>
 
               <SettingsGroup title="Toys">
-                <SettingRow title="Confetti cannon" description="Bắn pháo giấy khi bạn gõ /confetti.">
+                <SettingRow
+                  title="Confetti cannon"
+                  description="Bắn pháo giấy khi bạn gõ /confetti."
+                >
                   <Switch
                     checked={settings['ui.confetti'] !== false}
                     onCheckedChange={(value) => setSetting('ui.confetti', value)}
@@ -1035,7 +1083,10 @@ export function SettingsPage(): React.JSX.Element {
                   <Switch
                     checked={(settings['agent.permissionMode'] as string) === 'unrestricted'}
                     onCheckedChange={(value) =>
-                      void setSetting('agent.permissionMode', value ? 'unrestricted' : 'workspace-write')
+                      void setSetting(
+                        'agent.permissionMode',
+                        value ? 'unrestricted' : 'workspace-write',
+                      )
                     }
                   />
                 </SettingRow>

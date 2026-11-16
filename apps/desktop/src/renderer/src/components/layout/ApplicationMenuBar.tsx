@@ -158,8 +158,18 @@ export function ApplicationMenuBar(): React.JSX.Element {
         run: () => useAppStore.getState().setPaletteOpen(true),
       },
       'separator',
-      { id: 'light', label: 'Light theme', checked: theme === 'light', run: () => toggleTheme('light') },
-      { id: 'dark', label: 'Dark theme', checked: theme === 'dark', run: () => toggleTheme('dark') },
+      {
+        id: 'light',
+        label: 'Light theme',
+        checked: theme === 'light',
+        run: () => toggleTheme('light'),
+      },
+      {
+        id: 'dark',
+        label: 'Dark theme',
+        checked: theme === 'dark',
+        run: () => toggleTheme('dark'),
+      },
       {
         id: 'system',
         label: 'System theme',

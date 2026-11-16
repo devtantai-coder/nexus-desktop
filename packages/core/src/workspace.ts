@@ -1,9 +1,32 @@
 import { existsSync, readdirSync, realpathSync, renameSync, rmSync, statSync } from 'node:fs'
 import { relative as nodeRelative, resolve as nodeResolve, sep } from 'node:path'
 
+import ignore, { type Ignore } from 'ignore'
+
 import { NexusError } from './errors.ts'
 import type { JsonValue } from './types.ts'
-import { basename, dirname, endsWith, ensureDirectory, fileExists, fileMtimeMs, fileSize, globMatch, isDirectory, isIgnoredName, isProbablyBinary, isTextExtension, languageForPath, pathJoin, readFileSync, split, startsWith, toLower, toPosix, trim, utf8Prefix, writeFileAtomic } from './util.ts'
+import {
+  basename,
+  dirname,
+  ensureDirectory,
+  fileExists,
+  fileMtimeMs,
+  fileSize,
+  isDirectory,
+  isIgnoredName,
+  isProbablyBinary,
+  isTextExtension,
+  languageForPath,
+  pathJoin,
+  readFileSync,
+  split,
+  startsWith,
+  toLower,
+  toPosix,
+  trim,
+  utf8Prefix,
+  writeFileAtomic,
+} from './util.ts'
 
 const MAX_READ_BYTES = 1024 * 1024
 const MAX_WRITE_BYTES = 8 * 1024 * 1024
@@ -43,8 +66,6 @@ function sanitizeRelative(input: string): string {
   }
   return parts.join('/')
 }
-
-const stripLeadingSlash = (value: string): string => value.replace(/^\/+/, '')
 
 const insideRoot = (root: string, candidate: string): boolean =>
   candidate === root || startsWith(candidate, `${root}/`)
@@ -114,7 +135,7 @@ export function widenToRepository(start: string): string {
 
 export class Workspace {
   private readonly root: string
-  private ignorePatterns: string[] = []
+  private matcher: Ignore | null = null
   private readonly ignoreCache = new Map<string, boolean>()
 
   constructor(rootPath: string) {
@@ -130,40 +151,31 @@ export class Workspace {
 
   private loadIgnorePatterns(): void {
     const content = readFileSync(pathJoin(this.root, '.gitignore'), 256 * 1024)
-    for (const raw of split(content, '\n')) {
-      const line = trim(raw)
-      if (line === '' || line.startsWith('#')) continue
-      if (line.startsWith('!')) continue
-      this.ignorePatterns.push(line)
-    }
+    const matcher = ignore()
+    if (content !== '') matcher.add(content)
+    this.matcher = matcher
   }
 
   isIgnored(relativePath: string): boolean {
     if (relativePath === '') return false
     const cached = this.ignoreCache.get(relativePath)
     if (cached !== undefined) return cached
+    const normalized = toPosix(relativePath).replace(/^\.?\//, '')
     let ignored = false
-    for (const part of split(relativePath, '/')) {
+    for (const part of split(normalized, '/')) {
       if (isIgnoredName(part)) {
         ignored = true
         break
       }
     }
-    if (!ignored) {
-      const name = basename(relativePath)
-      for (const rawPattern of this.ignorePatterns) {
-        let pattern = rawPattern
-        if (endsWith(pattern, '/')) pattern = pattern.slice(0, -1)
-        pattern = stripLeadingSlash(pattern)
-        if (pattern === '') continue
-        if (
-          globMatch(pattern, relativePath) ||
-          globMatch(pattern, name) ||
-          (pattern.includes('/') && globMatch(`**/${pattern}`, relativePath))
-        ) {
-          ignored = true
-          break
-        }
+    if (!ignored && this.matcher !== null && normalized !== '' && !normalized.startsWith('../')) {
+      try {
+        const withoutTrailingSlash = normalized.replace(/\/+$/, '')
+        ignored =
+          this.matcher.ignores(normalized) ||
+          (withoutTrailingSlash !== '' && this.matcher.ignores(`${withoutTrailingSlash}/`))
+      } catch {
+        ignored = false
       }
     }
     if (this.ignoreCache.size >= 8192) this.ignoreCache.clear()
@@ -182,7 +194,10 @@ export class Workspace {
           `Path escapes the workspace (${this.root}): ${relativePath}. Use a path inside the workspace root.`,
         )
       }
-      const relative = absolute === this.root ? '' : toPosix(nodeRelative(this.root, absolute).split(sep).join('/'))
+      const relative =
+        absolute === this.root
+          ? ''
+          : toPosix(nodeRelative(this.root, absolute).split(sep).join('/'))
       return [absolute, relative]
     }
     const clean = sanitizeRelative(value)
@@ -224,12 +239,14 @@ export class Workspace {
   }
 
   writeFile(relativePath: string, content: string, readBefore = true): WriteResult {
+    this.filePathsCache = null
     const bytes = Buffer.byteLength(content, 'utf8')
     if (bytes > MAX_WRITE_BYTES) {
       throw new NexusError('E_FS', 'File exceeds the write limit (8388608 bytes)')
     }
     const [absolute, relative] = this.resolve(relativePath)
-    if (relative === '') throw new NexusError('E_PERMISSION', 'Refusing to overwrite the workspace root')
+    if (relative === '')
+      throw new NexusError('E_PERMISSION', 'Refusing to overwrite the workspace root')
     if (this.isIgnored(relative)) {
       throw new NexusError('E_PERMISSION', `Path is ignored by workspace rules: ${relative}`)
     }
@@ -271,9 +288,11 @@ export class Workspace {
   }
 
   rename(from: string, to: string): Record<string, JsonValue> {
+    this.filePathsCache = null
     const source = this.resolve(from)
     const target = this.resolve(to)
-    if (target[1] === '') throw new NexusError('E_PERMISSION', 'Refusing to overwrite the workspace root')
+    if (target[1] === '')
+      throw new NexusError('E_PERMISSION', 'Refusing to overwrite the workspace root')
     if (this.isIgnored(target[1])) {
       throw new NexusError('E_PERMISSION', `Path is ignored by workspace rules: ${target[1]}`)
     }
@@ -290,8 +309,10 @@ export class Workspace {
   }
 
   remove(relativePath: string): void {
+    this.filePathsCache = null
     const [absolute, relative] = this.resolve(relativePath)
-    if (relative === '') throw new NexusError('E_PERMISSION', 'Refusing to delete the workspace root')
+    if (relative === '')
+      throw new NexusError('E_PERMISSION', 'Refusing to delete the workspace root')
     if (this.isIgnored(relative)) {
       throw new NexusError('E_PERMISSION', `Path is ignored by workspace rules: ${relative}`)
     }
@@ -382,7 +403,11 @@ export class Workspace {
     return result
   }
 
-  private walkFiles(base: string, limit: number, visitor: (relative: string, absolute: string) => void): void {
+  private walkFiles(
+    base: string,
+    limit: number,
+    visitor: (relative: string, absolute: string) => void,
+  ): void {
     const [rootAbsolute, rootRelative] = this.resolve(base)
     let visited = 0
     const walk = (absolute: string, relative: string): void => {
@@ -411,10 +436,18 @@ export class Workspace {
     walk(rootAbsolute, rootRelative)
   }
 
+  private filePathsCache: { value: string[]; expires: number } | null = null
+  private filePathsCacheTtl = 5_000
+
   listFilePaths(limit = 5000): string[] {
+    const now = Date.now()
+    if (this.filePathsCache && this.filePathsCache.expires > now) {
+      return this.filePathsCache.value.slice(0, limit)
+    }
     const paths: string[] = []
-    this.walkFiles('', limit, (relative) => paths.push(relative))
-    return paths
+    this.walkFiles('', 5000, (relative) => paths.push(relative))
+    this.filePathsCache = { value: paths, expires: now + this.filePathsCacheTtl }
+    return paths.slice(0, limit)
   }
 
   searchFiles(query: string, limit = 50): JsonValue[] {

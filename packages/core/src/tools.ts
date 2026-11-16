@@ -7,11 +7,39 @@ import { httpRequest } from './http.ts'
 import { riskName, type Risk } from './security.ts'
 import type { Store } from './store.ts'
 
- 
 export type Json = any
-import { dirname, ensureDirectory, homeDir, isProbablyBinary, isTextExtension, languageForPath, nowIso, nowMs, optString, pathJoin, readFileSync, replaceAll, runProcess, split, startsWith, toLower, trim, urlDecode, urlEncode, writeFileAtomic } from './util.ts'
+import {
+  dirname,
+  ensureDirectory,
+  fileSize,
+  homeDir,
+  isProbablyBinary,
+  isTextExtension,
+  languageForPath,
+  nowIso,
+  nowMs,
+  optString,
+  pathJoin,
+  readFileSync,
+  replaceAll,
+  runProcess,
+  split,
+  startsWith,
+  toLower,
+  trim,
+  urlDecode,
+  urlEncode,
+  writeFileAtomic,
+} from './util.ts'
 import type { Workspace } from './workspace.ts'
 import type { GitEngine } from './git.ts'
+import {
+  countImportsAst,
+  extractCodeSymbols,
+  findAstReferences,
+  findTextReferences,
+  supportsAst,
+} from './code-intel.ts'
 
 const MAX_PROCESS_OUTPUT = 400000
 const MAX_TOOL_FILE = 512 * 1024
@@ -113,11 +141,7 @@ interface ExecCommandResult {
   err: string
 }
 
-const commandResult = (
-  command: string,
-  result: ExecCommandResult,
-  durationMs: number,
-): Json => ({
+const commandResult = (command: string, result: ExecCommandResult, durationMs: number): Json => ({
   command,
   exitCode: result.code,
   timedOut: result.timedOut,
@@ -185,7 +209,8 @@ const detectStack = (workspace: Workspace): StackInfo => {
   if (packageContent !== '') {
     if (workspace.exists('pnpm-lock.yaml')) stack.packageManager = 'pnpm'
     else if (workspace.exists('yarn.lock')) stack.packageManager = 'yarn'
-    else if (workspace.exists('bun.lockb') || workspace.exists('bun.lock')) stack.packageManager = 'bun'
+    else if (workspace.exists('bun.lockb') || workspace.exists('bun.lock'))
+      stack.packageManager = 'bun'
     else if (workspace.exists('package-lock.json')) stack.packageManager = 'npm'
     else if (workspace.exists('pnpm-workspace.yaml')) stack.packageManager = 'pnpm'
     else stack.packageManager = 'npm'
@@ -197,7 +222,8 @@ const detectStack = (workspace: Workspace): StackInfo => {
     workspace.exists('pyproject.toml') ||
     workspace.exists('requirements.txt') ||
     workspace.exists('pytest.ini')
-  if (workspace.exists('vitest.config.ts') || workspace.exists('vitest.config.js')) stack.hasVitest = true
+  if (workspace.exists('vitest.config.ts') || workspace.exists('vitest.config.js'))
+    stack.hasVitest = true
   if (
     workspace.exists('eslint.config.js') ||
     workspace.exists('eslint.config.mjs') ||
@@ -239,7 +265,10 @@ const detectTestCommand = (workspace: Workspace, stack: StackInfo): string => {
   if (stack.hasCargo) return 'cargo test'
   if (stack.hasGo) return 'go test ./...'
   if (stack.hasPython) return 'python3 -m pytest -q'
-  throw new NexusError('E_CONFIG', 'No test runner detected. Provide an explicit command or add a test script.')
+  throw new NexusError(
+    'E_CONFIG',
+    'No test runner detected. Provide an explicit command or add a test script.',
+  )
 }
 
 const detectBuildCommand = (workspace: Workspace, stack: StackInfo): string => {
@@ -350,7 +379,7 @@ const isPrivateIPv4 = (a: number, b: number): boolean => {
 
 export function safePublicUrl(url: string): boolean {
   const lower = toLower(url)
-  let schemeEnd = 0
+  let schemeEnd: number
   if (startsWith(lower, 'https://')) schemeEnd = 8
   else if (startsWith(lower, 'http://')) schemeEnd = 7
   else return false
@@ -362,7 +391,7 @@ export function safePublicUrl(url: string): boolean {
   const at = authority.lastIndexOf('@')
   if (at !== -1) authority = authority.slice(at + 1)
 
-  let host = ''
+  let host: string
   if (authority.startsWith('[')) {
     const close = authority.indexOf(']')
     if (close === -1) return false
@@ -386,8 +415,13 @@ export function safePublicUrl(url: string): boolean {
   if (host === '') return false
 
   if (
-    host === 'localhost' || host === '0.0.0.0' || host === '::1' || host === '::' ||
-    host.endsWith('.local') || host.endsWith('.internal') || host.endsWith('.localhost')
+    host === 'localhost' ||
+    host === '0.0.0.0' ||
+    host === '::1' ||
+    host === '::' ||
+    host.endsWith('.local') ||
+    host.endsWith('.internal') ||
+    host.endsWith('.localhost')
   ) {
     return false
   }
@@ -397,7 +431,9 @@ export function safePublicUrl(url: string): boolean {
       host = host.slice(7)
     } else {
       if (
-        host.startsWith('fe80:') || host.startsWith('fc') || host.startsWith('fd') ||
+        host.startsWith('fe80:') ||
+        host.startsWith('fc') ||
+        host.startsWith('fd') ||
         host.startsWith('ff')
       ) {
         return false
@@ -462,7 +498,14 @@ const parseFrontmatter = (raw: string): [Record<string, string>, string] => {
   return [meta, raw.slice(match[0].length)]
 }
 
+const SKILLS_CACHE_TTL_MS = 10_000
+const skillsCache = new Map<string, { value: Skill[]; expires: number }>()
+
 const discoverSkills = (workspace: Workspace): Skill[] => {
+  const cacheKey = workspace.rootPath
+  const cached = skillsCache.get(cacheKey)
+  const now = Date.now()
+  if (cached && cached.expires > now) return cached.value
   const skills: Skill[] = []
   const seen = new Set<string>()
   const scan = (directory: string, scope: string): void => {
@@ -480,7 +523,11 @@ const discoverSkills = (workspace: Workspace): Skill[] => {
       const raw = readFileSync(absolutePath, 400000)
       if (raw === '') continue
       const [meta, body] = parseFrontmatter(raw)
-      const id = trim(meta['id'] ?? meta['name'] ?? entry.name.slice(0, entry.name.length - extname(entry.name).length))
+      const id = trim(
+        meta['id'] ??
+          meta['name'] ??
+          entry.name.slice(0, entry.name.length - extname(entry.name).length),
+      )
       if (id === '' || seen.has(id)) continue
       seen.add(id)
       const skill: Skill = {
@@ -503,6 +550,7 @@ const discoverSkills = (workspace: Workspace): Skill[] => {
   scan(pathJoin(workspace.rootPath, '.nexus/skills'), 'project')
   scan(pathJoin(homeDir(), '.nexus/skills'), 'global')
   skills.sort((a, b) => a.name.localeCompare(b.name))
+  skillsCache.set(cacheKey, { value: skills, expires: Date.now() + SKILLS_CACHE_TTL_MS })
   return skills
 }
 
@@ -526,12 +574,18 @@ type SymbolPatternList = Array<[RegExp, string]>
 
 const SYMBOL_PATTERNS: Record<string, SymbolPatternList> = {
   ts: [
-    [/^\s*(?:export\s+)?(?:default\s+)?(?:abstract\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/, 'function'],
+    [
+      /^\s*(?:export\s+)?(?:default\s+)?(?:abstract\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/,
+      'function',
+    ],
     [/^\s*(?:export\s+)?(?:abstract\s+)?class\s+([A-Za-z_$][\w$]*)/, 'class'],
     [/^\s*(?:export\s+)?interface\s+([A-Za-z_$][\w$]*)/, 'interface'],
     [/^\s*(?:export\s+)?type\s+([A-Za-z_$][\w$]*)\s*=/, 'type'],
     [/^\s*(?:export\s+)?enum\s+([A-Za-z_$][\w$]*)/, 'enum'],
-    [/^\s*(?:export\s+)?const\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>/, 'function'],
+    [
+      /^\s*(?:export\s+)?const\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>/,
+      'function',
+    ],
     [/^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/, 'variable'],
   ],
   py: [
@@ -553,8 +607,14 @@ const SYMBOL_PATTERNS: Record<string, SymbolPatternList> = {
     [/^\s*(?:[\w:<>~*&]+\s+)+\**(\w+)\s*\([^;]*\)\s*(?:const)?\s*\{?/, 'function'],
   ],
   managed: [
-    [/^\s*(?:public|private|protected|internal|static|final|abstract|open|sealed|\s)*\s*(?:class|interface|enum|struct|object)\s+(\w+)/, 'type'],
-    [/^\s*(?:public|private|protected|internal|static|final|abstract|override|suspend|\s)+\s*(?:[\w<>[\],?]+\s+)(\w+)\s*\(/, 'function'],
+    [
+      /^\s*(?:public|private|protected|internal|static|final|abstract|open|sealed|\s)*\s*(?:class|interface|enum|struct|object)\s+(\w+)/,
+      'type',
+    ],
+    [
+      /^\s*(?:public|private|protected|internal|static|final|abstract|override|suspend|\s)+\s*(?:[\w<>[\],?]+\s+)(\w+)\s*\(/,
+      'function',
+    ],
   ],
   ruby: [
     [/^\s*def\s+(\w+[?!=]?)/, 'function'],
@@ -563,23 +623,39 @@ const SYMBOL_PATTERNS: Record<string, SymbolPatternList> = {
 }
 
 const symbolPatternsFor = (extension: string): SymbolPatternList => {
-  if (['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'].includes(extension)) return SYMBOL_PATTERNS['ts'] as SymbolPatternList
+  if (['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'].includes(extension))
+    return SYMBOL_PATTERNS['ts'] as SymbolPatternList
   if (extension === '.py') return SYMBOL_PATTERNS['py'] as SymbolPatternList
   if (extension === '.go') return SYMBOL_PATTERNS['go'] as SymbolPatternList
   if (extension === '.rs') return SYMBOL_PATTERNS['rs'] as SymbolPatternList
   if (['.c', '.h', '.cpp', '.cc', '.cxx', '.hpp', '.hh', '.hxx'].includes(extension)) {
     return SYMBOL_PATTERNS['cpp'] as SymbolPatternList
   }
-  if (['.java', '.kt', '.cs', '.swift'].includes(extension)) return SYMBOL_PATTERNS['managed'] as SymbolPatternList
+  if (['.java', '.kt', '.cs', '.swift'].includes(extension))
+    return SYMBOL_PATTERNS['managed'] as SymbolPatternList
   if (extension === '.rb') return SYMBOL_PATTERNS['ruby'] as SymbolPatternList
   return []
 }
 
 const extractSymbols = (path: string, content: string): Json[] => {
+  if (supportsAst(path)) {
+    const astSymbols = extractCodeSymbols(path, content)
+    if (astSymbols !== null) return astSymbols as unknown as Json[]
+  }
   const symbols: Json[] = []
   const extension = toLower(extname(path))
   const patterns = symbolPatternsFor(extension)
-  const blocked = new Set(['if', 'for', 'while', 'switch', 'catch', 'return', 'sizeof', 'new', 'delete'])
+  const blocked = new Set([
+    'if',
+    'for',
+    'while',
+    'switch',
+    'catch',
+    'return',
+    'sizeof',
+    'new',
+    'delete',
+  ])
   let lineNumber = 1
   for (const line of split(content, '\n')) {
     for (const [pattern, kind] of patterns) {
@@ -597,14 +673,21 @@ const extractSymbols = (path: string, content: string): Json[] => {
   return symbols
 }
 
-const countImports = (content: string): number => {
+const countImports = (path: string, content: string): number => {
+  if (supportsAst(path)) {
+    const count = countImportsAst(path, content)
+    if (count !== null) return count
+  }
   let count = 0
   for (const line of split(content, '\n')) {
     const trimmed = trim(line)
     if (
-      startsWith(trimmed, 'import ') || startsWith(trimmed, 'from ') ||
-      startsWith(trimmed, '#include') || startsWith(trimmed, 'use ') ||
-      startsWith(trimmed, 'require(') || startsWith(trimmed, 'using ')
+      startsWith(trimmed, 'import ') ||
+      startsWith(trimmed, 'from ') ||
+      startsWith(trimmed, '#include') ||
+      startsWith(trimmed, 'use ') ||
+      startsWith(trimmed, 'require(') ||
+      startsWith(trimmed, 'using ')
     ) {
       count += 1
     }
@@ -617,11 +700,24 @@ import { rmSync } from 'node:fs'
 import { uuid } from './util.ts'
 
 const toSlash = (path: string): string => path.split(sep).join('/')
-const rmSyncPath = (target: string): void => { rmSync(target, { force: true }) }
+const rmSyncPath = (target: string): void => {
+  rmSync(target, { force: true })
+}
 
 /** Process theo thời gian thực: spawn + buffer stdout/stderr (cap 400k), kill group khi stop. */
 export class ProcessManager {
-  private entries = new Map<string, { id: string; command: string; cwd: string; child: ChildProcess; output: string; running: boolean; exitCode: number | null }>()
+  private entries = new Map<
+    string,
+    {
+      id: string
+      command: string
+      cwd: string
+      child: ChildProcess
+      output: string
+      running: boolean
+      exitCode: number | null
+    }
+  >()
 
   start(command: string, cwd: string): Json {
     if (trim(command) === '') throw new NexusError('E_VALIDATION', 'Command is required')
@@ -796,6 +892,13 @@ export class ToolRegistry {
     return tool.execute(input, context)
   }
 
+  register(definition: ToolDefinition): () => void {
+    this.tools.set(definition.name, definition)
+    return () => {
+      if (this.tools.get(definition.name) === definition) this.tools.delete(definition.name)
+    }
+  }
+
   summarize(name: string, input: Json): string {
     const tool = this.tools.get(name)
     if (!tool || !tool.summarize) return name
@@ -835,7 +938,8 @@ export class ToolRegistry {
         }
         const result = workspace.readFile(path)
         let content = result.content
-        const countLines = (text: string): number => split(text, '\n').length - (text.endsWith('\n') ? 1 : 0)
+        const countLines = (text: string): number =>
+          split(text, '\n').length - (text.endsWith('\n') ? 1 : 0)
         const totalLines = countLines(content) + (content === '' ? 0 : 1)
         void totalLines
         const totalRaw = split(content, '\n').length
@@ -847,7 +951,8 @@ export class ToolRegistry {
         if (sliced) {
           const lines = split(content, '\n')
           const sliceStart = Math.min(startLine - 1, lines.length)
-          const sliceEnd = limitLines > 0 ? Math.min(sliceStart + limitLines, lines.length) : lines.length
+          const sliceEnd =
+            limitLines > 0 ? Math.min(sliceStart + limitLines, lines.length) : lines.length
           const windowLines = lines.slice(sliceStart, sliceEnd)
           content = joinLines(windowLines)
           endLine = startLine + windowLines.length - 1
@@ -880,8 +985,17 @@ export class ToolRegistry {
       },
       execute: (input, context) => {
         const workspace = requireWorkspace(context)
-        const result = workspace.writeFile(requireString(input, 'path'), requireString(input, 'content'))
-        recordChange(context, result.path, result.created ? 'create' : 'modify', result.before, input['content'])
+        const result = workspace.writeFile(
+          requireString(input, 'path'),
+          requireString(input, 'content'),
+        )
+        recordChange(
+          context,
+          result.path,
+          result.created ? 'create' : 'modify',
+          result.before,
+          input['content'],
+        )
         return { path: result.path, size: result.size, created: result.created }
       },
       summarize: (input) => `write ${optionalString(input, 'path')}`,
@@ -889,7 +1003,8 @@ export class ToolRegistry {
 
     this.add({
       name: 'edit_file',
-      description: 'Replace an exact text fragment in a file. Use replaceAll to change every occurrence.',
+      description:
+        'Replace an exact text fragment in a file. Use replaceAll to change every occurrence.',
       risk: 'write',
       parameters: {
         type: 'object',
@@ -909,10 +1024,13 @@ export class ToolRegistry {
         const replaceEvery = optionalBool(input, 'replaceAll')
         const existing = workspace.readFile(path)
         const position = existing.content.indexOf(oldText)
-        if (position === -1) throw new NexusError('E_TOOL', `Text to replace was not found in ${path}`)
+        if (position === -1)
+          throw new NexusError('E_TOOL', `Text to replace was not found in ${path}`)
         const next = replaceEvery
           ? replaceAll(existing.content, oldText, newText)
-          : existing.content.slice(0, position) + newText + existing.content.slice(position + oldText.length)
+          : existing.content.slice(0, position) +
+            newText +
+            existing.content.slice(position + oldText.length)
         const result = workspace.writeFile(path, next)
         recordChange(context, result.path, 'modify', existing.content, next)
         return { path: result.path, size: result.size }
@@ -1001,7 +1119,13 @@ export class ToolRegistry {
         const workspace = requireWorkspace(context)
         const source = workspace.readFile(requireString(input, 'from'))
         const result = workspace.writeFile(requireString(input, 'to'), source.content)
-        recordChange(context, result.path, result.created ? 'create' : 'modify', result.before, source.content)
+        recordChange(
+          context,
+          result.path,
+          result.created ? 'create' : 'modify',
+          result.before,
+          source.content,
+        )
         return { path: result.path, bytes: result.size }
       },
       summarize: (input) => `copy ${optionalString(input, 'from')}`,
@@ -1216,7 +1340,8 @@ export class ToolRegistry {
           }
         }
         flushFile()
-        if (files.length === 0) throw new NexusError('E_VALIDATION', 'No file sections found in patch')
+        if (files.length === 0)
+          throw new NexusError('E_VALIDATION', 'No file sections found in patch')
         const changed: string[] = []
         for (const file of files) {
           if (file.path === '') throw new NexusError('E_VALIDATION', 'Patch file path is required')
@@ -1243,15 +1368,14 @@ export class ToolRegistry {
           const existing = workspace.readFile(file.path)
           let next = existing.content
           for (const hunk of file.hunks) {
-            if (hunk.oldText === '') throw new NexusError('E_VALIDATION', 'Patch hunk has no context')
+            if (hunk.oldText === '')
+              throw new NexusError('E_VALIDATION', 'Patch hunk has no context')
             const position = next.indexOf(hunk.oldText)
             if (position === -1) {
               throw new NexusError('E_TOOL', `Patch context not found in ${file.path}`)
             }
             next =
-              next.slice(0, position) +
-              hunk.newText +
-              next.slice(position + hunk.oldText.length)
+              next.slice(0, position) + hunk.newText + next.slice(position + hunk.oldText.length)
           }
           const result = workspace.writeFile(file.path, next)
           recordChange(context, result.path, 'modify', existing.content, next)
@@ -1264,7 +1388,8 @@ export class ToolRegistry {
 
     this.add({
       name: 'save_memory',
-      description: 'Persist a durable project fact, decision, convention or note for future sessions.',
+      description:
+        'Persist a durable project fact, decision, convention or note for future sessions.',
       risk: 'write',
       parameters: {
         type: 'object',
@@ -1524,8 +1649,10 @@ export class ToolRegistry {
           for (const line of split(content, '\n')) {
             const trimmed = trim(line)
             if (
-              startsWith(trimmed, 'import ') || startsWith(trimmed, '#include') ||
-              startsWith(trimmed, 'use ') || startsWith(trimmed, 'require(') ||
+              startsWith(trimmed, 'import ') ||
+              startsWith(trimmed, '#include') ||
+              startsWith(trimmed, 'use ') ||
+              startsWith(trimmed, 'require(') ||
               startsWith(trimmed, 'from ')
             ) {
               imports.push(trimmed.slice(0, 200))
@@ -1816,9 +1943,10 @@ export class ToolRegistry {
           return { diagnostics: parseDiagnostics(text, kind), source: 'provided text' }
         }
         const stack = detectStack(workspace)
-        let command = ''
+        let command: string
         if (kind === 'eslint' || (kind !== 'tsc' && stack.hasEslint)) {
-          const prefix = stack.packageManager === 'npm' ? 'npx ' : `${packagePrefix(stack.packageManager)}exec `
+          const prefix =
+            stack.packageManager === 'npm' ? 'npx ' : `${packagePrefix(stack.packageManager)}exec `
           command = `${prefix}eslint . --no-color`
         } else {
           if (!stack.hasTsconfig) {
@@ -1879,8 +2007,7 @@ export class ToolRegistry {
             const targetLower = toLower(target)
             if (!startsWith(targetLower, 'http://') && !startsWith(targetLower, 'https://')) {
               const schemeEnd = current.indexOf('://')
-              const originEnd =
-                schemeEnd === -1 ? -1 : current.indexOf('/', schemeEnd + 3)
+              const originEnd = schemeEnd === -1 ? -1 : current.indexOf('/', schemeEnd + 3)
               if (target !== '' && target.startsWith('/') && schemeEnd !== -1) {
                 target = (originEnd === -1 ? current : current.slice(0, originEnd)) + target
               } else {
@@ -1991,7 +2118,10 @@ export class ToolRegistry {
       execute: async (input, context) => {
         const path = optionalString(input, 'path')
         return {
-          diff: await requireGit(context).diff(path === '' ? undefined : path, optionalBool(input, 'staged')),
+          diff: await requireGit(context).diff(
+            path === '' ? undefined : path,
+            optionalBool(input, 'staged'),
+          ),
         }
       },
       summarize: () => 'git diff',
@@ -2117,7 +2247,8 @@ export class ToolRegistry {
 
     this.add({
       name: 'repo_map',
-      description: 'Build a compact repository map with source files, line counts, imports and symbols.',
+      description:
+        'Build a compact repository map with source files, line counts, imports and symbols.',
       risk: 'read',
       parameters: {
         type: 'object',
@@ -2147,7 +2278,7 @@ export class ToolRegistry {
             path: relativePath,
             language: languageForPath(relativePath),
             lines: contentLines(content).length,
-            imports: countImports(content),
+            imports: countImports(relativePath, content),
             symbols,
           })
           count += 1
@@ -2202,6 +2333,55 @@ export class ToolRegistry {
     })
 
     this.add({
+      name: 'find_references',
+      description:
+        'Find declarations, calls and references of a symbol across the workspace using AST analysis (with text fallback for other languages).',
+      risk: 'read',
+      parameters: {
+        type: 'object',
+        properties: {
+          symbol: { type: 'string' },
+          path: { type: 'string' },
+          limit: { type: 'integer' },
+        },
+        required: ['symbol'],
+      },
+      execute: (input, context) => {
+        const workspace = requireWorkspace(context)
+        const symbol = requireString(input, 'symbol')
+        const prefix = optionalString(input, 'path')
+        const limit = clamp(optionalInt(input, 'limit', 100), 1, 500)
+        const references: Json[] = []
+        let truncated = false
+        for (const relativePath of workspace.listFilePaths(8000)) {
+          if (references.length >= limit) {
+            truncated = true
+            break
+          }
+          if (prefix !== '' && !startsWith(relativePath, prefix)) continue
+          if (!isTextExtension(relativePath)) continue
+          const absolute = pathJoin(workspace.rootPath, relativePath)
+          if (fileSize(absolute) > 512 * 1024) continue
+          const content = readFileSync(absolute, MAX_TOOL_FILE)
+          if (isProbablyBinary(content)) continue
+          const hits = supportsAst(relativePath)
+            ? (findAstReferences(relativePath, content, symbol, limit) ??
+              findTextReferences(content, symbol, limit))
+            : findTextReferences(content, symbol, limit)
+          for (const hit of hits) {
+            if (references.length >= limit) {
+              truncated = true
+              break
+            }
+            references.push({ path: relativePath, ...hit })
+          }
+        }
+        return { symbol, references, total: references.length, truncated }
+      },
+      summarize: (input) => `references ${optionalString(input, 'symbol')}`,
+    })
+
+    this.add({
       name: 'verify_changes',
       description:
         'Run the narrowest project verification (typecheck, then build, then tests) and return the result.',
@@ -2218,7 +2398,9 @@ export class ToolRegistry {
         const stack = detectStack(workspace)
         let command = optionalString(input, 'command')
         const scripts =
-          stack.scripts !== null && typeof stack.scripts === 'object' && !Array.isArray(stack.scripts)
+          stack.scripts !== null &&
+          typeof stack.scripts === 'object' &&
+          !Array.isArray(stack.scripts)
             ? (stack.scripts as Json)
             : {}
         if (command === '') {
@@ -2331,7 +2513,8 @@ export class ToolRegistry {
           input?.['arguments'] ?? {},
         )
       },
-      summarize: (input) => `mcp ${optionalString(input, 'serverId')}/${optionalString(input, 'tool')}`,
+      summarize: (input) =>
+        `mcp ${optionalString(input, 'serverId')}/${optionalString(input, 'tool')}`,
     })
   }
 }

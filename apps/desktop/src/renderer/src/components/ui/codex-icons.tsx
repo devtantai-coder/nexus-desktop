@@ -2,7 +2,10 @@ import type React from 'react'
 
 // Icon gốc trích từ Codex desktop (viewBox 16/20), giữ nguyên path.
 
-export interface IconProps { size?: number; className?: string }
+export interface IconProps {
+  size?: number
+  className?: string
+}
 
 export function IconHome({ size = 16, className }: IconProps): React.JSX.Element {
   return (

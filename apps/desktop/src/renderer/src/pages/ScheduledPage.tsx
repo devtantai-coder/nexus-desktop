@@ -85,7 +85,8 @@ export function ScheduledPage(): React.JSX.Element {
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-[14px] text-[var(--text)]">{schedule.title}</div>
                   <div className="mt-0.5 truncate text-[12.5px] text-[var(--text-faint)]">
-                    every {schedule.everyMinutes}m · next {new Date(schedule.nextRunAt).toLocaleString()}
+                    every {schedule.everyMinutes}m · next{' '}
+                    {new Date(schedule.nextRunAt).toLocaleString()}
                   </div>
                 </div>
                 <button

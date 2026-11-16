@@ -438,24 +438,24 @@ export function Sidebar(): React.JSX.Element {
               </svg>
             </button>
           </div>
-          {openSection('recents')
-            ? recent.length === 0
-              ? (
-                  <p className="px-2.5 py-1.5 text-[13px] text-[var(--text-faint)] opacity-60">
-                    No chats yet
-                  </p>
-                )
-              : recent.map((session) => (
-                  <ThreadRow
-                    key={session.id}
-                    session={session}
-                    active={activeSessionId === session.id && route.name !== 'home'}
-                    running={runningSessions.has(session.id)}
-                    onOpen={() => open(session)}
-                    onMenu={(rect) => openMenuFor(session, rect)}
-                  />
-                ))
-            : null}
+          {openSection('recents') ? (
+            recent.length === 0 ? (
+              <p className="px-2.5 py-1.5 text-[13px] text-[var(--text-faint)] opacity-60">
+                No chats yet
+              </p>
+            ) : (
+              recent.map((session) => (
+                <ThreadRow
+                  key={session.id}
+                  session={session}
+                  active={activeSessionId === session.id && route.name !== 'home'}
+                  running={runningSessions.has(session.id)}
+                  onOpen={() => open(session)}
+                  onMenu={(rect) => openMenuFor(session, rect)}
+                />
+              ))
+            )
+          ) : null}
 
           <button
             type="button"
@@ -500,7 +500,14 @@ export function Sidebar(): React.JSX.Element {
                 Local · Free
               </span>
             </span>
-            <svg viewBox="0 0 16 16" width={12} height={12} fill="currentColor" aria-hidden className="shrink-0 text-[var(--text-faint)]">
+            <svg
+              viewBox="0 0 16 16"
+              width={12}
+              height={12}
+              fill="currentColor"
+              aria-hidden
+              className="shrink-0 text-[var(--text-faint)]"
+            >
               <path d="M8 10.5 3.8 6.3l1-1L8 8.5l3.2-3.2 1 1z" />
             </svg>
           </button>
@@ -615,7 +622,11 @@ export function Sidebar(): React.JSX.Element {
               {rowMenu.session.pinned ? <PinOff size={13} /> : <Pin size={13} />}
               {rowMenu.session.pinned ? 'Bỏ ghim' : 'Ghim lên đầu'}
             </button>
-            <button type="button" onClick={() => renameSession(rowMenu.session)} className={menuRow}>
+            <button
+              type="button"
+              onClick={() => renameSession(rowMenu.session)}
+              className={menuRow}
+            >
               <Pencil size={13} />
               Đổi tên
             </button>
