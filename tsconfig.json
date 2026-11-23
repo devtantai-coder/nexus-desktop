@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["node"],
+    "allowImportingTsExtensions": true
+  },
+  "include": [
+    "packages/**/*.ts",
+    "packages/**/*.tsx",
+    "apps/desktop/src/**/*.ts",
+    "apps/desktop/src/**/*.tsx",
+    "apps/desktop/*.ts",
+    "tests/**/*.ts",
+    "scripts/**/*.ts"
+  ]
+}
